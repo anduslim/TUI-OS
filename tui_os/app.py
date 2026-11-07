@@ -191,13 +191,22 @@ class TuiOS(App[None]):
         for value in (snap.net_rx, snap.net_tx):
             if value and value > self._net_peak:
                 self._net_peak = value
-        panel = self.query_one(TelemetryPanel)
+        panel = self._panel()
+        if panel is None:  # message arrived during shutdown
+            return
         # Hidden widgets are not painted, but keep their state current so the
         # panel is correct the instant it is re-opened.
         panel.apply_snapshot(snap, max_net=self._net_peak)
 
     def on_terminal_pane_llm_state(self, message: TerminalPane.LlmState) -> None:
-        self.query_one(TelemetryPanel).set_llm(message.model, message.state)
+        panel = self._panel()
+        if panel is not None:
+            panel.set_llm(message.model, message.state)
+
+    def _panel(self) -> TelemetryPanel | None:
+        """The telemetry panel, or None once the screen is being torn down."""
+        panels = self.query(TelemetryPanel)
+        return panels.first() if panels else None
 
     # ----------------------------------------------------------------- actions
     def action_toggle_telemetry(self) -> None:

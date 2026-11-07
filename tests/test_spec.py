@@ -190,3 +190,17 @@ def test_every_screen_uses_only_the_six_colours():
         assert {"0000FF", "00FF00", "FFFF00", "FF0000"} <= seen
     finally:
         b.stop()
+
+
+async def test_late_messages_after_teardown_are_ignored():
+    """Regression (CI): an LlmState/TelemetryUpdated message can land while
+    the screen is being torn down; the handlers must not raise."""
+    from tui_os.app import TelemetryUpdated
+    from tui_os.widgets.terminal import TerminalPane
+
+    app = make(OK)
+    async with app.run_test(size=(147, 46)) as pilot:
+        await pilot.pause()
+        await app.query_one(TelemetryPanel).remove()
+        app.on_terminal_pane_llm_state(TerminalPane.LlmState("m", "ready"))
+        app.on_telemetry_updated(TelemetryUpdated(OK))
