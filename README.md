@@ -280,13 +280,13 @@ textual run --dev tui_os.app:TuiOS   # live CSS reload with textual-dev
 |----------|------|------|
 | `tests.yml` | every push and PR | pytest on Python 3.11 and 3.14 (3.14 is the CPython the APK ships), `buildozer.spec` dependency resolution, Java helper type-check |
 | `apk.yml` | PRs, `main` | Builds the APK and uploads it as a workflow artifact |
-| `apk.yml` | `v*` tag | Runs the tests, builds the APK with its version taken from the tag, then publishes a **GitHub Release** with the APK and its SHA-256 |
+| `apk.yml` | **Run workflow** with `release: X.Y.Z`, or a `vX.Y.Z` tag | Runs the tests, builds the APK as version X.Y.Z, then publishes a **GitHub Release** `vX.Y.Z` with the APK and its SHA-256 |
 
-To cut a release:
+To cut a release, either:
 
-```bash
-git tag v1.1.0 && git push origin v1.1.0
-```
+* **GitHub UI:** Actions → *Android APK* → *Run workflow* → `release: 1.1.0`. The
+  workflow creates the `v1.1.0` tag on the selected commit; or
+* **git:** `git tag v1.1.0 && git push origin v1.1.0`.
 
 Signing: add the repository secrets `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` for a
