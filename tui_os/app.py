@@ -22,6 +22,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.driver import Driver
 from textual.message import Message
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
@@ -89,6 +90,9 @@ class TitleBar(Static):
 class TuiOS(App[None]):
     CSS_PATH = Path(__file__).with_name("app.tcss")
     TITLE = "TUI-OS"
+    # The command palette is a modal overlay with its own (grey) styling and
+    # a footer entry; nothing in the E-ink spec needs it.
+    ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
         Binding("ctrl+b", "toggle_telemetry", "Telemetry", priority=True),
@@ -106,8 +110,11 @@ class TuiOS(App[None]):
         *,
         telemetry_source: TelemetrySource | None = None,
         ollama_client: OllamaClient | None = None,
+        driver_class: type[Driver] | None = None,
     ) -> None:
-        super().__init__()
+        # driver_class lets a non-terminal host (the Android/Kivy shell)
+        # supply its own Driver instead of the TTY-based Linux driver.
+        super().__init__(driver_class=driver_class)
         self.settings = settings or Settings.load()
         # E-ink: every animation (tab underline slide, smooth scroll, fades)
         # completes instantly. One state change -> one repaint.
@@ -184,10 +191,22 @@ class TuiOS(App[None]):
         for value in (snap.net_rx, snap.net_tx):
             if value and value > self._net_peak:
                 self._net_peak = value
-        panel = self.query_one(TelemetryPanel)
+        panel = self._panel()
+        if panel is None:  # message arrived during shutdown
+            return
         # Hidden widgets are not painted, but keep their state current so the
         # panel is correct the instant it is re-opened.
         panel.apply_snapshot(snap, max_net=self._net_peak)
+
+    def on_terminal_pane_llm_state(self, message: TerminalPane.LlmState) -> None:
+        panel = self._panel()
+        if panel is not None:
+            panel.set_llm(message.model, message.state)
+
+    def _panel(self) -> TelemetryPanel | None:
+        """The telemetry panel, or None once the screen is being torn down."""
+        panels = self.query(TelemetryPanel)
+        return panels.first() if panels else None
 
     # ----------------------------------------------------------------- actions
     def action_toggle_telemetry(self) -> None:

@@ -67,8 +67,14 @@ Screen {
     border-title-color: $eink-green;
     border-title-style: bold;
     border-subtitle-color: $eink-fg;
+    border-subtitle-style: bold;
     background: $eink-bg;
-    padding: 1 0 0 0;
+    padding: 1 1 0 1;
+}
+
+/* Bottom-border label: LIVE (white) / OFFLINE (red). */
+#telemetry.-offline {
+    border-subtitle-color: $eink-red;
 }
 
 #telemetry-status {
@@ -109,9 +115,13 @@ Screen {
     background: $eink-blue;
 }
 
-#workspace Underline > .underline--bar {
-    color: $eink-green;
-    background: $eink-fg;
+/* Active tab = solid blue fill only: no sliding underline. */
+#workspace Tabs {
+    height: 1;
+}
+
+#workspace Underline {
+    display: none;
 }
 
 #workspace TabPane {
@@ -122,19 +132,19 @@ Screen {
 #workspace ContentSwitcher {
     height: 1fr;
     border: $frame;
-    border-top: none;
 }
 
 /* ---- inputs ------------------------------------------------------------ */
 Input {
     background: $eink-bg;
     color: $eink-fg;
-    border: tall $eink-fg;
+    border: $frame;
     padding: 0 1;
 }
 
+/* Focus = heavy green border (same cell width: no layout shift). */
 Input:focus {
-    border: tall $eink-green;
+    border: $frame-focus;
     background-tint: transparent;
 }
 
@@ -191,6 +201,12 @@ Input > .input--cursor {
 #mail-index {
     height: 40%;
     background: $eink-bg;
+    border-left: heavy $eink-bg;
+}
+
+/* Focus marker: the gutter is always there, only its colour changes. */
+#mail-index:focus {
+    border-left: $frame-focus;
 }
 
 DataTable {
@@ -198,8 +214,10 @@ DataTable {
     color: $eink-fg;
 }
 
-DataTable > .datatable--header {
+DataTable > .datatable--header,
+DataTable:focus > .datatable--header {
     background: $eink-bg;
+    background-tint: transparent;  /* Textual tints it 5% on focus: #0C0C0C */
     color: $eink-green;
     text-style: bold underline;
 }
@@ -247,7 +265,7 @@ DataTable:focus {
     background: $eink-bg;
 }
 
-#calendar-pane:focus .cal-box {
+#calendar-pane:focus #cal-appts {
     border: $frame-focus;
 }
 
@@ -278,6 +296,11 @@ DataTable:focus {
     height: 1fr;
     padding: 0 2;
     background: $eink-bg;
+    border-left: heavy $eink-bg;
+}
+
+#viewport:focus {
+    border-left: $frame-focus;
 }
 
 #viewport:focus {
@@ -302,6 +325,11 @@ Footer FooterKey .footer-key--key {
 
 Footer FooterKey:hover {
     background: $eink-bg;
+}
+
+/* Textual draws this separator at 20% foreground (#333333): no greys. */
+Footer FooterKey.-command-palette {
+    border-left: vkey $eink-fg;
 }
 
 Toast {

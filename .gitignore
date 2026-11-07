@@ -6,3 +6,7 @@ dist/
 build/
 .pytest_cache/
 *.svg
+.buildozer/
+bin/
+*.apk
+*.aab

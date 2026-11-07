@@ -1,0 +1,61 @@
+# Builds the Android APK with Buildozer (python-for-android, Kivy/SDL2
+# bootstrap) and uploads it as a workflow artifact.
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "claude/**"]
+    tags: ["v*"]
+    paths:
+      - buildozer.spec
+      - main.py
+      - android/**
+      - assets/**
+      - tui_os/**
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: System packages for python-for-android
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git zip unzip autoconf automake libtool pkg-config cmake \
+            zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
+            libffi-dev libssl-dev
+
+      - name: Buildozer
+        run: pip install --upgrade buildozer "cython<3.1" virtualenv
+
+      - name: Cache SDK / NDK / p4a dists
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: buildozer-${{ hashFiles('buildozer.spec') }}
+
+      - name: Build debug APK
+        env:
+          APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
+        run: yes | buildozer android debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: olares-workspace-tui-apk
+          path: bin/*.apk
+          if-no-files-found: error

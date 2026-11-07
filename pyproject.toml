@@ -15,7 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "textual-dev"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "textual-dev", "pyte>=0.8"]
+# Host used by the Android APK (python main.py runs it on desktop too)
+android = ["kivy>=2.3", "pyte>=0.8"]
 
 [project.scripts]
 tui-os = "tui_os.__main__:main"

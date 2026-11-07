@@ -32,24 +32,64 @@ reflows to the full width straight away.
 └──────────── DEMO ───┘ └──────────────────────────────────────────────────────┘
 ```
 
-## Quick start
+## Quick start (desktop development)
 
 ```bash
 pip install -e .            # or: pip install textual httpx
 tui-os --demo               # synthetic telemetry, no server needed
 tui-os --host 192.168.1.50  # real Olares box: Ollama :11434, Prometheus :9090
+python main.py              # the same app inside the Kivy host the APK uses (pip install kivy pyte)
 ```
 
-Two common ways to run it on the Boox:
+## Android APK (Boox Tab Ultra C)
 
-* **SSH (recommended).** Install TUI-OS on the Olares box, then from Termux or any SSH
-  client on the tablet run `ssh olares -t tui-os --host 127.0.0.1`. The tablet only
-  draws the terminal; all network calls stay on the box.
-* **Local in Termux.** `pkg install python && pip install tui-os`, then
-  `tui-os --host <olares-ip>`.
+On the tablet TUI-OS ships as a standalone APK, **not** as a script run in Termux.
+`buildozer.spec` packages it with Buildozer / python-for-android (Kivy SDL2 bootstrap),
+targets API 30 (Android 11) on `arm64-v8a`, and locks the app to full-screen landscape.
 
-For the cleanest refresh, set the terminal app's Boox refresh mode to **Fast** or
-**Regal**. Press `Ctrl+R` at any time to force a full repaint and clear ghosting.
+```bash
+# 1. Point the APK at your box (copied to private storage on first launch)
+$EDITOR android/config.toml
+
+# 2. Build (Linux or WSL; downloads the Android SDK/NDK on first run, ~30 min)
+pip install buildozer "cython<3.1"
+buildozer android debug            # -> bin/olares_workspace_tui-1.0.0-arm64-v8a-debug.apk
+
+# 3. Install on the tablet over USB
+adb install -r bin/*.apk
+```
+
+Or run the **Android APK** workflow in GitHub Actions (`.github/workflows/apk.yml`),
+which builds the same spec and uploads the APK as an artifact.
+
+### How a Textual app runs without a terminal
+
+Textual needs a terminal and an Android app process doesn't have one, so the APK
+puts a small virtual terminal in between (`tui_os/host/`):
+
+```
+TuiOS (Textual, own thread + asyncio loop)
+   │ ANSI out                      ▲ events.Key / Resize / Mouse
+   ▼                               │
+EmbeddedDriver ──▶ pyte.Screen ──▶ TerminalBridge.take_dirty_rows()
+                                   │
+                         Kivy TerminalView (paints changed rows only,
+                         JetBrains Mono, 6-colour palette) ◀── hardware keyboard, taps
+```
+
+* **No shell, no Termux, no subprocess.** Textual runs in-process with a custom driver
+  (`bridge.py`). The Kivy UI thread never blocks on it.
+* **Hardware keyboard.** The app holds the system keyboard claim (and takes it back if it
+  is released), so SDL keeps sending key events. With the keyboard cover attached,
+  Android keeps the soft keyboard hidden. Special keys and Ctrl/Alt combinations go
+  straight to Textual (`keymap.py`); printable characters come from layout-aware text
+  events, with a US-layout fallback. `Esc` / BACK never closes the app.
+* **Screen.** Locked to landscape, full screen with sticky immersive mode (status and
+  navigation bars hidden), black presplash, and `singleTask` so relaunching returns to
+  the running session.
+* **E-ink.** Only rows that changed are repainted, and an idle TUI draws nothing. A
+  vertical swipe sends PgUp/PgDn, a tap is a click, and returning from sleep triggers one
+  full clean repaint.
 
 ## Configuration
 
@@ -87,6 +127,12 @@ names, override them under `[queries]`. The panel lists any metric that returns 
 
 ```
 tui_os/
+├── host/                APK host (no terminal needed)
+│   ├── bridge.py        Embedded Textual driver + pyte screen + input injection
+│   ├── grid.py          147×46 logical grid → device pixels
+│   ├── glyphs.py        Pixel-exact box-drawing / block characters
+│   ├── keymap.py        Hardware keyboard → Textual keys
+│   └── kivy_app.py      Full-screen landscape Kivy app
 ├── app.py               App shell: layout, Ctrl+B toggle, tab keys, telemetry worker
 ├── app.tcss             E-ink stylesheet (design tokens at the top)
 ├── theme.py             "eink-dark" Textual theme: pure #000/#FFF + solid accents
@@ -115,19 +161,35 @@ interval. A failed poll shows as `OFFLINE` in the panel and does not stop the lo
 worker, which closes the HTTP stream. The `context` returned by Ollama is passed back
 on the next prompt, so a conversation keeps its history across turns.
 
-### E-ink design rules (enforced in code)
+### Interface spec (enforced in code and by `tests/test_spec.py`)
+
+| Rule | Implementation |
+|------|----------------|
+| Six colours only: `#000000 #FFFFFF #00FF00 #0000FF #FFFF00 #FF0000` | Theme with `luminosity_spread=0`. Textual's built-in tints (DataTable header, palette separator) are overridden. A test renders every screen through the APK bridge and checks every cell. |
+| Blue is a fill only, with white text. Green fill takes black text. Red fill takes white text. | Tabs, status bars, selections and code fences: white on blue. Title chip: black on green. Critical meters: white on red. |
+| JetBrains Mono 14/20 everywhere, no size hierarchy. Italic only for placeholders. | Bold and solid colour blocks carry hierarchy. Font is bundled in `assets/fonts/` (OFL). |
+| Cell grid 8.4 × 20 px, 147 × 46 cells | The APK host locks Textual to 147×46 and scales cells to the panel (2.008× = 16.87 × 40.2 px on 2480×1860, `tui_os/host/grid.py`). |
+| Meters: exactly 20 cells of `█` and `·`, never `░▒▓` | `telemetry_panel.bar()` |
+| Panel titles inside the top border. Focus = heavy green border. | `border-title`. Inputs and the calendar box switch `solid` white to `heavy` green. Mail and Browser use a heavy left gutter that is always present, so focus changes colour and never shifts layout. |
+| `LIVE` / `OFFLINE` in the telemetry bottom border | `border-subtitle`, red when offline |
+| Active tab = solid blue, no sliding underline | The `Underline` widget is hidden and `Tabs` is 1 row high |
+| Static green block cursor | `cursor_blink = False`, green `input--cursor` |
+| Status bars white on blue. Key hints: green key, white label. | Mail, Calendar and Browser bars; `Footer` |
+| Telemetry rows: label + value, then meter. Ollama node. States ok / warn / offline. | `MetricRow`, `LlmNode`, `TelemetryPanel.state`. The terminal posts `LlmState` messages to the panel. |
+
+E-ink behaviour on top of that:
 
 * **No animation.** `App.animation_level = "none"`, and every scroll call passes
-  `animate=False`. Hiding the sidebar is a single layout change, with no slide.
-* **Paging, not smooth scrolling.** Use Space/PgUp/PgDn in the transcript, pager and
-  browser.
-* **Fewer repaints.** Tokens are repainted in batches. Telemetry values are rounded
-  (whole °C, 0.1 GB, 20-cell bars) and a row repaints only when its rendered text
-  changes. The clock updates once a minute, and the input cursor does not blink.
-* **Pure colours only.** Black `#000000` backgrounds, white `#FFFFFF` text, and solid
-  green `#00FF00`, blue `#0000FF`, yellow `#FFFF00` and red `#FF0000`.
-  `luminosity_spread=0` so Textual does not generate grey shades, there are no
-  `░▒▓` dithered glyphs, and hover effects are turned off.
+  `animate=False`. Ctrl+B is a single layout change: the workspace takes back the 30
+  columns in the same frame.
+* **Paging, not smooth scrolling.** Use Space/PgUp/PgDn in the app, or a vertical swipe
+  on the tablet.
+* **Fewer repaints.** LLM tokens are repainted in batches (350 ms). Telemetry is rounded
+  first (whole °C, 0.1 GB, 5 % meter steps) and a row repaints only when its rendered
+  text changes. The clock updates once a minute. The host only redraws dirty rows.
+* **Crisp edges.** The host draws box-drawing and block characters as pixel-snapped
+  rectangles (`tui_os/host/glyphs.py`), so borders join without gaps and never
+  anti-alias to grey.
 
 ## Development
 
@@ -142,3 +204,4 @@ textual run --dev tui_os.app:TuiOS   # live CSS reload with textual-dev
 * IMAP/SMTP provider for Mail and a CalDAV provider (e.g. Radicale on Olares) for
   Calendar. Both tabs already read from `mock_data`-shaped objects.
 * A real PTY shell tab next to the LLM terminal.
+* An in-app settings screen for the host and model (today: `android/config.toml` before building).
