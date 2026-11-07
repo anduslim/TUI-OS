@@ -1,0 +1,9 @@
+# Bundled into the APK and copied to the app's private storage on first
+# launch (TUI_OS_CONFIG points at that copy). Edit before building.
+# Keys and defaults: see tui_os/config.py and README.md.
+
+olares_host = "192.168.1.50"
+ollama_model = "llama3.1:8b"
+telemetry_interval = 5
+stream_flush_interval = 0.35
+demo_mode = false

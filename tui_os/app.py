@@ -22,6 +22,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.driver import Driver
 from textual.message import Message
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
@@ -106,8 +107,11 @@ class TuiOS(App[None]):
         *,
         telemetry_source: TelemetrySource | None = None,
         ollama_client: OllamaClient | None = None,
+        driver_class: type[Driver] | None = None,
     ) -> None:
-        super().__init__()
+        # driver_class lets a non-terminal host (the Android/Kivy shell)
+        # supply its own Driver instead of the TTY-based Linux driver.
+        super().__init__(driver_class=driver_class)
         self.settings = settings or Settings.load()
         # E-ink: every animation (tab underline slide, smooth scroll, fades)
         # completes instantly. One state change -> one repaint.

@@ -304,6 +304,11 @@ Footer FooterKey:hover {
     background: $eink-bg;
 }
 
+/* Textual draws this separator at 20% foreground (#333333): no greys. */
+Footer FooterKey.-command-palette {
+    border-left: vkey $eink-fg;
+}
+
 Toast {
     background: $eink-bg;
     color: $eink-fg;

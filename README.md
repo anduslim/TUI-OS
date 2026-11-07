@@ -32,24 +32,64 @@ reflows to the full width straight away.
 └──────────── DEMO ───┘ └──────────────────────────────────────────────────────┘
 ```
 
-## Quick start
+## Quick start (desktop development)
 
 ```bash
 pip install -e .            # or: pip install textual httpx
 tui-os --demo               # synthetic telemetry, no server needed
 tui-os --host 192.168.1.50  # real Olares box: Ollama :11434, Prometheus :9090
+python main.py              # the same app inside the Kivy host the APK uses (pip install kivy pyte)
 ```
 
-Two common ways to run it on the Boox:
+## Android APK (Boox Tab Ultra C)
 
-* **SSH (recommended).** Install TUI-OS on the Olares box, then from Termux or any SSH
-  client on the tablet run `ssh olares -t tui-os --host 127.0.0.1`. The tablet only
-  draws the terminal; all network calls stay on the box.
-* **Local in Termux.** `pkg install python && pip install tui-os`, then
-  `tui-os --host <olares-ip>`.
+On the tablet TUI-OS ships as a standalone APK, **not** as a script run in Termux.
+`buildozer.spec` packages it with Buildozer / python-for-android (Kivy SDL2 bootstrap),
+targets API 30 (Android 11) on `arm64-v8a`, and locks the app to full-screen landscape.
 
-For the cleanest refresh, set the terminal app's Boox refresh mode to **Fast** or
-**Regal**. Press `Ctrl+R` at any time to force a full repaint and clear ghosting.
+```bash
+# 1. Point the APK at your box (copied to private storage on first launch)
+$EDITOR android/config.toml
+
+# 2. Build (Linux or WSL; downloads the Android SDK/NDK on first run, ~30 min)
+pip install buildozer "cython<3.1"
+buildozer android debug            # -> bin/olares_workspace_tui-1.0.0-arm64-v8a-debug.apk
+
+# 3. Install on the tablet over USB
+adb install -r bin/*.apk
+```
+
+Or run the **Android APK** workflow in GitHub Actions (`.github/workflows/apk.yml`),
+which builds the same spec and uploads the APK as an artifact.
+
+### How a Textual app runs without a terminal
+
+Textual needs a terminal and an Android app process doesn't have one, so the APK
+puts a small virtual terminal in between (`tui_os/host/`):
+
+```
+TuiOS (Textual, own thread + asyncio loop)
+   │ ANSI out                      ▲ events.Key / Resize / Mouse
+   ▼                               │
+EmbeddedDriver ──▶ pyte.Screen ──▶ TerminalBridge.take_dirty_rows()
+                                   │
+                         Kivy TerminalView (paints changed rows only,
+                         JetBrains Mono, 6-colour palette) ◀── hardware keyboard, taps
+```
+
+* **No shell, no Termux, no subprocess.** Textual runs in-process with a custom driver
+  (`bridge.py`). The Kivy UI thread never blocks on it.
+* **Hardware keyboard.** The app holds the system keyboard claim (and takes it back if it
+  is released), so SDL keeps sending key events. With the keyboard cover attached,
+  Android keeps the soft keyboard hidden. Special keys and Ctrl/Alt combinations go
+  straight to Textual (`keymap.py`); printable characters come from layout-aware text
+  events, with a US-layout fallback. `Esc` / BACK never closes the app.
+* **Screen.** Locked to landscape, full screen with sticky immersive mode (status and
+  navigation bars hidden), black presplash, and `singleTask` so relaunching returns to
+  the running session.
+* **E-ink.** Only rows that changed are repainted, and an idle TUI draws nothing. A
+  vertical swipe sends PgUp/PgDn, a tap is a click, and returning from sleep triggers one
+  full clean repaint.
 
 ## Configuration
 
@@ -87,6 +127,7 @@ names, override them under `[queries]`. The panel lists any metric that returns 
 
 ```
 tui_os/
+├── host/                APK host: embedded driver + pyte bridge, keymap, Kivy view
 ├── app.py               App shell: layout, Ctrl+B toggle, tab keys, telemetry worker
 ├── app.tcss             E-ink stylesheet (design tokens at the top)
 ├── theme.py             "eink-dark" Textual theme: pure #000/#FFF + solid accents
@@ -142,3 +183,4 @@ textual run --dev tui_os.app:TuiOS   # live CSS reload with textual-dev
 * IMAP/SMTP provider for Mail and a CalDAV provider (e.g. Radicale on Olares) for
   Calendar. Both tabs already read from `mock_data`-shaped objects.
 * A real PTY shell tab next to the LLM terminal.
+* An in-app settings screen for the host and model (today: `android/config.toml` before building).
