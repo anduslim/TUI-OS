@@ -278,7 +278,7 @@ textual run --dev tui_os.app:TuiOS   # live CSS reload with textual-dev
 
 | Workflow | When | What |
 |----------|------|------|
-| `tests.yml` | every push and PR | pytest (Python 3.11, as on Android), `buildozer.spec` dependency resolution, Java helper type-check |
+| `tests.yml` | every push and PR | pytest on Python 3.11 and 3.14 (3.14 is the CPython the APK ships), `buildozer.spec` dependency resolution, Java helper type-check |
 | `apk.yml` | PRs, `main` | Builds the APK and uploads it as a workflow artifact |
 | `apk.yml` | `v*` tag | Runs the tests, builds the APK with its version taken from the tag, then publishes a **GitHub Release** with the APK and its SHA-256 |
 

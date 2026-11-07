@@ -70,6 +70,11 @@ jobs:
           key: buildozer-${{ hashFiles('buildozer.spec') }}-v2
           restore-keys: buildozer-
 
+      - name: Drop p4a's throwaway pip venv from the cache
+        # Recreating it over a cached copy mixes two pip versions
+        # (ImportError: capture_logging). It is rebuilt in seconds.
+        run: rm -rf .buildozer/android/platform/build-*/build/venv
+
       - name: Version
         id: version
         run: |

@@ -10,11 +10,17 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.14 = the CPython python-for-android 2026.5 builds for the APK;
+        # 3.11 = the oldest supported desktop Python.
+        python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"  # the CPython python-for-android ships
+          python-version: ${{ matrix.python-version }}
       - run: pip install -e '.[dev]'
       - run: pytest -q
       - name: buildozer.spec requirements resolve together
