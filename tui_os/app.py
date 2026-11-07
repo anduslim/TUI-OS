@@ -1,0 +1,230 @@
+"""TUI-OS application shell.
+
+Layout (landscape)::
+
+    ┌ title bar ─────────────────────────────────────────────────────────┐
+    │ ┌ OLARES ONE ─┐ ┌ Terminal │ Mail │ Calendar │ Browser ──────────┐ │
+    │ │ telemetry   │ │                                                │ │
+    │ │ (Ctrl+B)    │ │   workspace (1fr — claims full width when the  │ │
+    │ │ 30 cols     │ │   telemetry panel is hidden)                   │ │
+    │ └─────────────┘ └────────────────────────────────────────────────┘ │
+    └ footer (key bindings) ─────────────────────────────────────────────┘
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from pathlib import Path
+
+from rich.text import Text
+from textual import work
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal
+from textual.message import Message
+from textual.widgets import Footer, Static, TabbedContent, TabPane
+
+from .config import Settings
+from .services.ollama import OllamaClient
+from .services.telemetry import (
+    DemoTelemetry,
+    PrometheusTelemetry,
+    TelemetrySnapshot,
+    TelemetrySource,
+)
+from .theme import EINK_THEME
+from .widgets.browser import BrowserPane
+from .widgets.calendar import CalendarPane
+from .widgets.mail import MailPane
+from .widgets.telemetry_panel import TelemetryPanel
+from .widgets.terminal import TerminalPane
+
+TABS = ("terminal", "mail", "calendar", "browser")
+
+
+class TelemetryUpdated(Message):
+    """Posted by the telemetry worker each poll."""
+
+    def __init__(self, snapshot: TelemetrySnapshot) -> None:
+        super().__init__()
+        self.snapshot = snapshot
+
+
+class TitleBar(Static):
+    """One-line header. Clock has minute resolution (one repaint a minute)."""
+
+    def __init__(self, host: str, *, id: str | None = None) -> None:
+        super().__init__(id=id)
+        self.host = host
+        self._last = ""
+
+    def on_mount(self) -> None:
+        self.tick()
+        # Align ticks to the minute boundary so the clock never lags.
+        self.set_timer(60 - time.localtime().tm_sec + 0.05, self._start_minute_timer)
+
+    def _start_minute_timer(self) -> None:
+        self.tick()
+        self.set_interval(60, self.tick)
+
+    def tick(self) -> None:
+        stamp = time.strftime("%a %d %b  %H:%M")
+        if stamp == self._last:
+            return
+        self._last = stamp
+        text = Text()
+        text.append(" TUI-OS ", "bold #000000 on #00FF00")
+        text.append(f"  olares://{self.host}", "bold #FFFFFF")
+        right = f"{stamp} "
+        text.append(" " * max(1, self.size.width - text.cell_len - len(right)))
+        text.append(right, "bold #FFFFFF")
+        self.update(text)
+
+    def on_resize(self) -> None:
+        self._last = ""
+        self.tick()
+
+
+class TuiOS(App[None]):
+    CSS_PATH = Path(__file__).with_name("app.tcss")
+    TITLE = "TUI-OS"
+
+    BINDINGS = [
+        Binding("ctrl+b", "toggle_telemetry", "Telemetry", priority=True),
+        Binding("f1,alt+1", "show_tab('terminal')", "Term", priority=True),
+        Binding("f2,alt+2", "show_tab('mail')", "Mail", priority=True),
+        Binding("f3,alt+3", "show_tab('calendar')", "Cal", priority=True),
+        Binding("f4,alt+4", "show_tab('browser')", "Web", priority=True),
+        Binding("ctrl+r", "refresh_screen", "Redraw", priority=True),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
+    ]
+
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        telemetry_source: TelemetrySource | None = None,
+        ollama_client: OllamaClient | None = None,
+    ) -> None:
+        super().__init__()
+        self.settings = settings or Settings.load()
+        # E-ink: every animation (tab underline slide, smooth scroll, fades)
+        # completes instantly. One state change -> one repaint.
+        self.animation_level = "none"
+        self.telemetry_source: TelemetrySource = telemetry_source or self._make_telemetry()
+        self.ollama = ollama_client or OllamaClient(
+            self.settings.resolved_ollama_url, self.settings.ollama_model
+        )
+        # Fixed full-scale reference for network bars (adapts upward to peaks).
+        self._net_peak = 12.5e6  # 100 Mbit/s
+
+    def _make_telemetry(self) -> TelemetrySource:
+        if self.settings.demo_mode:
+            return DemoTelemetry()
+        return PrometheusTelemetry(self.settings.resolved_prometheus_url, self.settings.queries)
+
+    # ------------------------------------------------------------------ layout
+    def compose(self) -> ComposeResult:
+        source_label = (
+            "demo data" if self.settings.demo_mode else self.settings.resolved_prometheus_url
+        )
+        yield TitleBar(self.settings.olares_host, id="titlebar")
+        with Horizontal(id="desktop"):
+            yield TelemetryPanel(source_label=source_label, id="telemetry")
+            with TabbedContent(initial="terminal", id="workspace"):
+                with TabPane("1 Terminal", id="terminal"):
+                    yield TerminalPane(
+                        self.ollama,
+                        flush_interval=self.settings.stream_flush_interval,
+                        system_prompt=self.settings.ollama_system_prompt,
+                        id="terminal-pane",
+                    )
+                with TabPane("2 Mail", id="mail"):
+                    yield MailPane(id="mail-pane")
+                with TabPane("3 Calendar", id="calendar"):
+                    yield CalendarPane(id="calendar-pane")
+                with TabPane("4 Browser", id="browser"):
+                    yield BrowserPane(home=self.settings.browser_home, id="browser-pane")
+        yield Footer(compact=True)
+
+    def on_mount(self) -> None:
+        self.register_theme(EINK_THEME)
+        self.theme = EINK_THEME.name
+        self.query_one("#telemetry").display = self.settings.telemetry_visible
+        self.telemetry_loop()
+        self._focus_tab("terminal")
+
+    async def on_unmount(self) -> None:
+        await asyncio.gather(
+            self.telemetry_source.aclose(), self.ollama.aclose(), return_exceptions=True
+        )
+
+    # --------------------------------------------------------------- telemetry
+    @work(exclusive=True, group="telemetry", exit_on_error=False)
+    async def telemetry_loop(self) -> None:
+        """Background poller: fetch → post message → sleep, until cancelled.
+
+        Runs as an async worker on the app's event loop; network I/O is
+        awaited, so the UI never blocks. A failing poll is reported in the
+        panel and retried on the next tick rather than killing the loop.
+        """
+        interval = max(1.0, self.settings.telemetry_interval)
+        while True:
+            started = time.monotonic()
+            try:
+                snapshot = await self.telemetry_source.fetch()
+            except Exception as exc:  # noqa: BLE001 - never let the loop die
+                snapshot = TelemetrySnapshot(source="offline", error=str(exc) or type(exc).__name__)
+            self.post_message(TelemetryUpdated(snapshot))
+            await asyncio.sleep(max(0.0, interval - (time.monotonic() - started)))
+
+    def on_telemetry_updated(self, message: TelemetryUpdated) -> None:
+        snap = message.snapshot
+        for value in (snap.net_rx, snap.net_tx):
+            if value and value > self._net_peak:
+                self._net_peak = value
+        panel = self.query_one(TelemetryPanel)
+        # Hidden widgets are not painted, but keep their state current so the
+        # panel is correct the instant it is re-opened.
+        panel.apply_snapshot(snap, max_net=self._net_peak)
+
+    # ----------------------------------------------------------------- actions
+    def action_toggle_telemetry(self) -> None:
+        panel = self.query_one(TelemetryPanel)
+        # display:none removes it from layout; the 1fr workspace reflows to
+        # full width in the same frame (no slide animation -> no ghosting).
+        panel.display = not panel.display
+
+    def action_show_tab(self, tab: str) -> None:
+        # Drop focus first. Otherwise, when the old pane hides, Textual
+        # passes focus to the next widget *in that same pane*, and
+        # TabbedContent switches back to the pane that holds focus.
+        self.screen.set_focus(None)
+        self.query_one("#workspace", TabbedContent).active = tab
+        self._focus_tab(tab)
+
+    def _focus_tab(self, tab: str) -> None:
+        target = {
+            "terminal": "#prompt",
+            "mail": "#mail-index",
+            "calendar": "#calendar-pane",
+            "browser": "#viewport",
+        }[tab]
+
+        def apply() -> None:
+            # Stale request (user already moved on): do nothing, otherwise
+            # TabbedContent would switch back to the pane we focus.
+            if self.query_one("#workspace", TabbedContent).active == tab:
+                self.query_one(target).focus()
+
+        self.call_after_refresh(apply)
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        if event.pane.id in TABS:
+            self._focus_tab(event.pane.id)
+
+    def action_refresh_screen(self) -> None:
+        """Full repaint — use to clear accumulated E-ink ghosting."""
+        self.refresh(layout=True)
+        self.screen.refresh(repaint=True)

@@ -1,0 +1,319 @@
+/* ==========================================================================
+   TUI-OS — E-ink dark stylesheet
+   Pure contrast only: #000000 viewports, #FFFFFF text, solid accents.
+   No tints, no transparency, no hover effects (touch/E-ink has no hover and
+   every hover repaint is a wasted panel refresh).
+   ========================================================================== */
+
+/* ---- design tokens ----------------------------------------------------- */
+$eink-bg:      #000000;
+$eink-fg:      #FFFFFF;
+$eink-green:   #00FF00;
+$eink-blue:    #0000FF;
+$eink-yellow:  #FFFF00;
+$eink-red:     #FF0000;
+
+$sidebar-width: 30;
+$frame:         solid $eink-fg;
+$frame-focus:   heavy $eink-green;
+
+/* ---- global ------------------------------------------------------------ */
+Screen {
+    background: $eink-bg;
+    color: $eink-fg;
+    layers: base overlay;
+}
+
+* {
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 0;
+    scrollbar-color: $eink-fg;
+    scrollbar-color-hover: $eink-fg;
+    scrollbar-color-active: $eink-green;
+    scrollbar-background: $eink-bg;
+    scrollbar-background-hover: $eink-bg;
+    scrollbar-background-active: $eink-bg;
+    link-background-hover: $eink-bg;
+}
+
+*:focus {
+    background-tint: transparent;
+}
+
+.bar {
+    height: 1;
+    width: 1fr;
+    background: $eink-blue;
+    color: $eink-fg;
+    text-wrap: nowrap;
+    text-overflow: clip;
+}
+
+#titlebar {
+    height: 1;
+    background: $eink-bg;
+    color: $eink-fg;
+}
+
+#desktop {
+    height: 1fr;
+}
+
+/* ---- telemetry sidebar ------------------------------------------------- */
+#telemetry {
+    width: $sidebar-width;
+    height: 1fr;
+    border: $frame;
+    border-title-color: $eink-green;
+    border-title-style: bold;
+    border-subtitle-color: $eink-fg;
+    background: $eink-bg;
+    padding: 1 0 0 0;
+}
+
+#telemetry-status {
+    height: auto;
+    padding: 1 1 0 1;
+    dock: bottom;
+}
+
+/* ---- workspace / tabs -------------------------------------------------- */
+#workspace {
+    width: 1fr;
+    height: 1fr;
+    background: $eink-bg;
+}
+
+#workspace Tabs {
+    background: $eink-bg;
+}
+
+#workspace Tab {
+    color: $eink-fg;
+    background: $eink-bg;
+    text-style: none;
+    padding: 0 2;
+}
+
+#workspace Tab.-active {
+    color: $eink-fg;
+    background: $eink-blue;
+    text-style: bold;
+}
+
+#workspace Tab:hover {
+    background: $eink-bg;
+}
+
+#workspace Tab.-active:hover {
+    background: $eink-blue;
+}
+
+#workspace Underline > .underline--bar {
+    color: $eink-green;
+    background: $eink-fg;
+}
+
+#workspace TabPane {
+    padding: 0;
+    background: $eink-bg;
+}
+
+#workspace ContentSwitcher {
+    height: 1fr;
+    border: $frame;
+    border-top: none;
+}
+
+/* ---- inputs ------------------------------------------------------------ */
+Input {
+    background: $eink-bg;
+    color: $eink-fg;
+    border: tall $eink-fg;
+    padding: 0 1;
+}
+
+Input:focus {
+    border: tall $eink-green;
+    background-tint: transparent;
+}
+
+Input > .input--placeholder {
+    color: $eink-fg;
+    text-style: italic;
+}
+
+Input > .input--cursor {
+    background: $eink-green;
+    color: $eink-bg;
+}
+
+/* ---- terminal ---------------------------------------------------------- */
+#terminal-pane {
+    height: 1fr;
+}
+
+#term-header {
+    height: 1;
+    background: $eink-bg;
+    border-bottom: none;
+}
+
+#transcript {
+    height: 1fr;
+    background: $eink-bg;
+    padding: 0 1;
+}
+
+#transcript ChatEntry {
+    margin: 1 0 0 0;
+}
+
+#transcript ChatEntry.meta {
+    margin: 0;
+}
+
+#transcript ResponseBlock {
+    margin: 0 0 0 2;
+    padding: 0 1;
+    border-left: thick $eink-green;
+}
+
+#prompt {
+    dock: bottom;
+}
+
+/* ---- mail -------------------------------------------------------------- */
+#mail-pane {
+    height: 1fr;
+}
+
+#mail-index {
+    height: 40%;
+    background: $eink-bg;
+}
+
+DataTable {
+    background: $eink-bg;
+    color: $eink-fg;
+}
+
+DataTable > .datatable--header {
+    background: $eink-bg;
+    color: $eink-green;
+    text-style: bold underline;
+}
+
+DataTable > .datatable--cursor,
+DataTable:focus > .datatable--cursor {
+    background: $eink-blue;
+    color: $eink-fg;
+    text-style: bold;
+}
+
+DataTable > .datatable--hover {
+    background: $eink-bg;
+}
+
+DataTable > .datatable--even-row,
+DataTable > .datatable--odd-row {
+    background: $eink-bg;
+}
+
+DataTable:focus {
+    background-tint: transparent;
+}
+
+#mail-pager {
+    height: 1fr;
+    padding: 0 1;
+    background: $eink-bg;
+}
+
+/* ---- calendar ---------------------------------------------------------- */
+#calendar-pane {
+    height: 1fr;
+}
+
+#cal-main {
+    height: 1fr;
+}
+
+.cal-box {
+    border: $frame;
+    border-title-color: $eink-green;
+    border-title-style: bold;
+    padding: 0 1;
+    background: $eink-bg;
+}
+
+#calendar-pane:focus .cal-box {
+    border: $frame-focus;
+}
+
+#cal-appts {
+    width: 1fr;
+    height: 1fr;
+}
+
+#cal-side {
+    width: 30;
+    height: 1fr;
+}
+
+#cal-month {
+    height: 13;
+}
+
+#cal-todo {
+    height: 1fr;
+}
+
+/* ---- browser ----------------------------------------------------------- */
+#browser-pane {
+    height: 1fr;
+}
+
+#viewport {
+    height: 1fr;
+    padding: 0 2;
+    background: $eink-bg;
+}
+
+#viewport:focus {
+    background-tint: transparent;
+}
+
+/* ---- footer & notifications ------------------------------------------- */
+Footer {
+    background: $eink-bg;
+}
+
+Footer FooterKey {
+    background: $eink-bg;
+    color: $eink-fg;
+}
+
+Footer FooterKey .footer-key--key {
+    background: $eink-bg;
+    color: $eink-green;
+    text-style: bold;
+}
+
+Footer FooterKey:hover {
+    background: $eink-bg;
+}
+
+Toast {
+    background: $eink-bg;
+    color: $eink-fg;
+    border-left: thick $eink-green;
+}
+
+Toast.-warning {
+    border-left: thick $eink-yellow;
+}
+
+Toast.-error {
+    border-left: thick $eink-red;
+}

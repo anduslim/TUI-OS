@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tui-os"
+version = "0.1.0"
+description = "E-ink friendly Textual workspace (LLM terminal, mail, calendar, browser) for Olares One"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "textual>=1.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "textual-dev"]
+
+[project.scripts]
+tui-os = "tui_os.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tui_os"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
