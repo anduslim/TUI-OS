@@ -9,7 +9,8 @@ A text-mode "personal OS" for doing development from an **Onyx Boox Tab Ultra C*
 | 1 Terminal | `F1` / `Alt+1` | Prompt environment that streams from the Ollama server on the box (`/api/generate`) |
 | 2 Mail     | `F2` / `Alt+2` | Index and pager split laid out like neomutt (mock mailbox) |
 | 3 Calendar | `F3` / `Alt+3` | Appointments, month view and TODO laid out like calcurse (mock data) |
-| 4 Browser  | `F4` / `Alt+4` | Text viewport like w3m: real HTTP fetches, numbered links, `about:` pages |
+| 4 Browser  | `F4` / `Alt+4` | **APK:** native Android WebView restyled to the E-ink palette. **Desktop:** text viewport like w3m |
+| 5 K9s (Cluster) | `F5` / `Alt+5` | `k9s` on the Olares One over SSH, in an E-ink skin |
 
 On the left, a 30-column **telemetry panel** shows CPU and GPU temperature, VRAM, and
 network RX/TX from Prometheus. **`Ctrl+B`** hides or shows it, and the workspace
@@ -123,11 +124,79 @@ The default PromQL queries assume **node-exporter** (CPU temperature, network) a
 **NVIDIA DCGM exporter** (GPU temperature, VRAM). If your box exposes different metric
 names, override them under `[queries]`. The panel lists any metric that returns no data.
 
+## Browser tab (WebView) and Tailscale
+
+In the APK, the Browser tab is a real Android **WebView** placed exactly over the
+tab's panel (cell-grid aligned). Every page gets an injected user style
+(`tui_os/host/eink_web.py`): black surfaces, white text, green links and focus
+rings, white-on-blue selection, and no shadows, gradients, transitions or smooth
+scrolling.
+
+* **Tailscale:** install Tailscale on the Boox and on the Olares One. WebView and
+  app traffic then route over the tailnet automatically. The URL bar understands
+  tailnet names: `olares-one`, `olares-one:8080/grafana`, `100.x.y.z:9090` and
+  `*.ts.net` open over `http://` (cleartext is allowed for these; WireGuard
+  already encrypts the tailnet). Dotted public names open over `https://`, and
+  anything with spaces is a search. Set `olares_host = "olares-one"` and every
+  service (Ollama, Prometheus, k9s SSH) uses MagicDNS.
+* **Keys:** F4 or Enter sends keys to the page (typing, Tab, arrows, PgUp/PgDn).
+  **Esc** hands keys back to the TUI: `u` URL bar, `b` back, `r` reload, Enter back
+  into the page. F1–F5, Ctrl+B, Ctrl+L and Ctrl+Q always reach the TUI. Android
+  BACK walks page history, then releases.
+* **Known limit:** the WebView is a native view on top of the TUI, so a toast
+  notification can't draw over the page area.
+
+On a desktop terminal the tab stays the text-mode browser.
+
+## K9s (Cluster) tab
+
+`k9s` runs **on the Olares One** in a remote PTY over SSH (asyncssh). A built-in
+terminal emulator draws it inside the panel, sized to the panel's exact cell grid.
+Resizes, such as Ctrl+B widening the workspace, are sent to the PTY, so nothing
+clips.
+
+Setup on the Olares One:
+
+1. Install k9s (for example from the k9s GitHub releases) and make sure the SSH
+   user can read a kubeconfig. If it isn't `~/.kube/config`, set `k9s_kubeconfig`.
+2. Allow the tablet to log in. Either:
+   * open the K9s tab once: it shows the **device public key** (generated on the
+     tablet on first use), which you add to `~/.ssh/authorized_keys`; or
+   * enable **Tailscale SSH** on the node (`tailscale set --ssh`). No keys are
+     needed; the tailnet identity is used.
+3. In `android/config.toml` (or `~/.config/tui-os/config.toml`):
+
+   ```toml
+   olares_host = "olares-one"     # MagicDNS name
+   k9s_user = "olares"
+   # k9s_host = ""                 # defaults to olares_host
+   # k9s_kubeconfig = "/etc/kubernetes/admin.conf"
+   # k9s_refresh_rate = 5          # seconds; slow is kind to E-ink
+   ```
+
+Behaviour:
+
+* **Host key:** trusted on first use and pinned in `known_hosts` in the app's data
+  dir. A changed key is refused with a clear message.
+* **Skin:** each session uploads the E-ink skin and an E-ink config
+  (`refreshRate`, `noIcons`, `logoless`) to `~/.config/tui-os/k9s` and runs k9s
+  with `K9S_CONFIG_DIR` pointing there. Your own `~/.config/k9s` is never touched.
+  To use the skin elsewhere: `tui_os/k9s/skins/eink.yaml`.
+* **Palette clamp:** whatever k9s (or a plugin) prints is clamped to the six
+  tokens and the pairing rules before it's drawn.
+* **Keys:** everything goes to k9s (arrows, Esc, Enter, `:` commands, `/` filters,
+  digits for namespaces, Ctrl combinations) except the app's F1–F5, Ctrl+B,
+  Ctrl+R and Ctrl+Q. k9s's own Ctrl+B page-up is also on PgUp. Ctrl+C quits k9s;
+  Enter reconnects.
+
 ## Architecture
 
 ```
 tui_os/
 ├── host/                APK host (no terminal needed)
+│   ├── android_host.py  Native WebView via pyjnius (+ android/src/…/EinkBrowser.java)
+│   ├── eink_web.py      CSS/JS injected into every page
+│   ├── services.py      HostServices protocol the Textual side talks to
 │   ├── bridge.py        Embedded Textual driver + pyte screen + input injection
 │   ├── grid.py          147×46 logical grid → device pixels
 │   ├── glyphs.py        Pixel-exact box-drawing / block characters
@@ -137,12 +206,18 @@ tui_os/
 ├── app.tcss             E-ink stylesheet (design tokens at the top)
 ├── theme.py             "eink-dark" Textual theme: pure #000/#FFF + solid accents
 ├── config.py            Settings (defaults → TOML → env → CLI)
+├── palette.py           The six tokens + clamp for colours we don't control
+├── k9s/                 E-ink k9s skin (skins/eink.yaml) and config.yaml
 ├── services/            Network code with no Textual imports
+│   ├── ssh.py           asyncssh PTY session, TOFU host keys, device key, skin upload
 │   ├── ollama.py        Async NDJSON streaming client for /api/generate
 │   ├── telemetry.py     Prometheus /api/v1/query poller + demo source
 │   └── web.py           HTML → Rich Text renderer with numbered links
 ├── widgets/
 │   ├── telemetry_panel.py
+│   ├── k9s.py           K9s tab (states, device key, session wiring)
+│   ├── term_emulator.py pyte terminal widget: palette clamp, key encoding, resize
+│   ├── webview.py       Browser tab for the APK (WebSurface overlay placeholder)
 │   ├── terminal.py      Streaming worker, batched repaint, /commands
 │   ├── mail.py  calendar.py  browser.py
 └── mock_data.py         Mailbox, schedule, about: pages
@@ -199,9 +274,30 @@ pytest                       # services (httpx MockTransport) + Textual pilot te
 textual run --dev tui_os.app:TuiOS   # live CSS reload with textual-dev
 ```
 
+## CI/CD and releases
+
+| Workflow | When | What |
+|----------|------|------|
+| `tests.yml` | every push and PR | pytest on Python 3.11 and 3.14 (3.14 is the CPython the APK ships), `buildozer.spec` dependency resolution, Java helper type-check |
+| `apk.yml` | PRs, `main` | Builds the APK and uploads it as a workflow artifact |
+| `apk.yml` | `v*` tag | Runs the tests, builds the APK with its version taken from the tag, then publishes a **GitHub Release** with the APK and its SHA-256 |
+
+To cut a release:
+
+```bash
+git tag v1.1.0 && git push origin v1.1.0
+```
+
+Signing: add the repository secrets `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` for a
+release-signed APK with a stable key. That's needed for in-place updates. Without
+them the release ships a debug-signed APK, which installs but may need an
+uninstall before the next update.
+
 ## Roadmap
 
 * IMAP/SMTP provider for Mail and a CalDAV provider (e.g. Radicale on Olares) for
   Calendar. Both tabs already read from `mock_data`-shaped objects.
 * A real PTY shell tab next to the LLM terminal.
-* An in-app settings screen for the host and model (today: `android/config.toml` before building).
+* An in-app settings screen for the host, model and k9s target (today: `android/config.toml` before building).
+* Keyboard-driven link hints in the WebView (like Vimium) for mouse-free navigation.

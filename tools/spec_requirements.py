@@ -11,14 +11,23 @@ import configparser
 import sys
 from pathlib import Path
 
-RECIPES = {"hostpython3", "python3", "kivy"}
+RECIPES = {"hostpython3", "python3", "kivy", "openssl", "cffi"}
+#: Recipes whose Python package other requirements depend on: resolve against
+#: the version python-for-android builds, not the latest on PyPI.
+RECIPE_VERSIONS = {"cryptography": "46.0.3"}
 
 
 def requirements(spec: Path) -> list[str]:
     cfg = configparser.ConfigParser()
     cfg.read(spec)
     reqs = [r.strip() for r in cfg["app"]["requirements"].split(",")]
-    return [r for r in reqs if r and r.split("==")[0] not in RECIPES]
+    out = []
+    for r in reqs:
+        name = r.split("==")[0]
+        if not r or name in RECIPES:
+            continue
+        out.append(f"{name}=={RECIPE_VERSIONS[name]}" if name in RECIPE_VERSIONS else r)
+    return out
 
 
 if __name__ == "__main__":

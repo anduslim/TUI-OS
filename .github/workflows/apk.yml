@@ -1,23 +1,40 @@
-# Builds the Android APK with Buildozer (python-for-android, Kivy/SDL2
-# bootstrap) and uploads it as a workflow artifact.
+# Android APK: build on PRs and main (artifact), publish GitHub Releases on tags.
+#
+#   git tag v1.1.0 && git push origin v1.1.0
+#     -> tests -> APK (version from the tag) -> GitHub Release with the APK
+#
+# Signing: add these repository secrets for a release-signed APK with a
+# stable key (needed for in-place updates across releases):
+#   ANDROID_KEYSTORE_BASE64   base64 of the .keystore/.jks file
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+# Without them the release carries a debug-signed APK (installable, but each
+# CI keystore differs, so updating may require uninstalling first).
 name: Android APK
 
 on:
-  workflow_dispatch:
+  pull_request:
   push:
-    branches: ["main", "claude/**"]
+    branches: ["main"]
     tags: ["v*"]
-    paths:
-      - buildozer.spec
-      - main.py
-      - android/**
-      - assets/**
-      - tui_os/**
+  workflow_dispatch:
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  tests:
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/tests.yml
+
   apk:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 120
+    outputs:
+      apk_name: ${{ steps.collect.outputs.apk_name }}
+      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +55,9 @@ jobs:
             zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
             libffi-dev libssl-dev
 
+      - name: Rust target for the cryptography recipe (SSH)
+        run: rustup target add aarch64-linux-android
+
       - name: Buildozer
         run: pip install --upgrade buildozer "cython<3.1" virtualenv
 
@@ -47,15 +67,89 @@ jobs:
           path: |
             ~/.buildozer
             .buildozer
-          key: buildozer-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-${{ hashFiles('buildozer.spec') }}-v2
+          restore-keys: buildozer-
 
-      - name: Build debug APK
+      - name: Drop p4a's throwaway pip venv from the cache
+        # Recreating it over a cached copy mixes two pip versions
+        # (ImportError: capture_logging). It is rebuilt in seconds.
+        run: rm -rf .buildozer/android/platform/build-*/build/venv
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="$(sed -n 's/^version = //p' buildozer.spec)"
+          fi
+          echo "APP_VERSION=$v" >> "$GITHUB_ENV"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Signing keystore
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -n "$KEYSTORE_B64" && "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "P4A_RELEASE_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
         env:
           APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
-        run: yes | buildozer android debug
+          P4A_RELEASE_KEYSTORE_PASSWD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          P4A_RELEASE_KEYALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          P4A_RELEASE_KEYALIAS_PASSWD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ "${{ steps.signing.outputs.signed }}" == "true" ]]; then
+            yes | buildozer android release
+          else
+            yes | buildozer android debug
+          fi
+
+      - name: Collect APK
+        id: collect
+        run: |
+          mkdir -p dist
+          src="$(ls -t bin/*.apk | head -1)"
+          kind=$([[ "${{ steps.signing.outputs.signed }}" == "true" ]] && echo release || echo debug)
+          name="olares-workspace-tui-${{ steps.version.outputs.version }}-arm64-v8a-${kind}.apk"
+          cp "$src" "dist/$name"
+          (cd dist && sha256sum "$name" > "$name.sha256")
+          echo "apk_name=$name" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
           name: olares-workspace-tui-apk
-          path: bin/*.apk
+          path: dist/*
           if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [tests, apk]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: olares-workspace-tui-apk
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            **Olares Workspace TUI ${{ github.ref_name }}**: native Android APK for the Onyx Boox Tab Ultra C (arm64-v8a, Android 11+).
+
+            Install: download `${{ needs.apk.outputs.apk_name }}`, then `adb install -r <apk>` or open it on the tablet.
+            Signing: ${{ needs.apk.outputs.signed == 'true' && 'release keystore' || 'debug key (add the ANDROID_KEYSTORE_* secrets for stable release signing)' }}.
+            Checksum: see the `.sha256` file.

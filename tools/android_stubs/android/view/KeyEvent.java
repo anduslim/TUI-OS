@@ -1,0 +1,1 @@
+package android.view; public class KeyEvent { public static final int ACTION_DOWN=0, KEYCODE_ESCAPE=111, KEYCODE_BACK=4, KEYCODE_F1=131, KEYCODE_F2=132, KEYCODE_F3=133, KEYCODE_F4=134, KEYCODE_F5=135, KEYCODE_B=30, KEYCODE_L=40, KEYCODE_Q=45; public int getAction(){return 0;} public boolean isCtrlPressed(){return false;} }

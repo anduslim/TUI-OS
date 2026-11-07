@@ -64,6 +64,7 @@ class TerminalView(Widget):
     def __init__(self, bridge: TerminalBridge, **kw) -> None:
         super().__init__(**kw)
         self.bridge = bridge
+        self.on_geometry = None  # set by the app: re-place native overlays
         self.grid = GridGeometry.fit(1, 1)
         self._fonts = {False: str(FONT_REGULAR), True: str(FONT_BOLD)}
         self._rows: dict[int, InstructionGroup] = {}
@@ -87,6 +88,8 @@ class TerminalView(Widget):
         self.grid = grid
         self.bridge.resize(GRID_COLS, GRID_ROWS)
         self.full_redraw()
+        if self.on_geometry is not None:
+            self.on_geometry()
 
     def full_redraw(self) -> None:
         for group in self._rows.values():
@@ -96,6 +99,10 @@ class TerminalView(Widget):
 
     def cell_at(self, x: float, y: float) -> tuple[int, int]:
         return self.grid.cell_at(x - self.x, self.top - y)
+
+    def parent_top_offset(self) -> float:
+        """Distance from the window's top edge to this widget's top (px)."""
+        return Window.height - self.top
 
     # ------------------------------------------------------------- painting
     def _poll(self, _dt: float) -> None:
@@ -202,6 +209,9 @@ class OlaresWorkspaceApp(App):
 
     # ----------------------------------------------------------- lifecycle
     def on_start(self) -> None:
+        self.host = _android_host(self.bridge, self.view)
+        if self.host is not None:
+            self.view.on_geometry = self.host.relayout
         self.bridge.resize(*self.view.grid_size())
         self.bridge.start()
         self._lock_keyboard()
@@ -217,12 +227,14 @@ class OlaresWorkspaceApp(App):
 
     def on_stop(self) -> None:
         self.bridge.stop(timeout=3)
+        if getattr(self, "host", None) is not None:
+            self.host.destroy()
 
     def _make_tui(self, driver_class):
         from ..app import TuiOS
         from ..config import Settings
 
-        return TuiOS(Settings.load(), driver_class=driver_class)
+        return TuiOS(Settings.load(), driver_class=driver_class, host=getattr(self, "host", None))
 
     def _tui_exited(self, bridge: TerminalBridge) -> None:
         if bridge.error:
@@ -283,6 +295,21 @@ class OlaresWorkspaceApp(App):
             self.bridge.send_text(self._pending_char.character)
         self._pending_char = None
         self._pending_ev = None
+
+
+def _android_host(bridge: TerminalBridge, view: TerminalView):
+    """The native WebView host on Android; None elsewhere (text browser)."""
+    if platform != "android":
+        return None
+    try:
+        from .android_host import AndroidHost
+
+        return AndroidHost(bridge, view)
+    except Exception:  # noqa: BLE001 - fall back to the text browser, log why
+        import traceback
+
+        traceback.print_exc()
+        return None
 
 
 def _enter_immersive_mode() -> None:

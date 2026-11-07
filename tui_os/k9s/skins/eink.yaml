@@ -1,0 +1,106 @@
+# TUI-OS "eink" skin for k9s: the six-colour E-ink palette only.
+#
+#   #000000 black   background everywhere
+#   #FFFFFF white   text, borders
+#   #00FF00 green   focus, keys, headers, OK/new
+#   #0000FF blue    selection fills only (always with white text)
+#   #FFFF00 yellow  modified / sort / filter / warnings
+#   #FF0000 red     errors, kills
+#
+# Pairing rules: blue is never a text colour, and no text sits on a green
+# fill. Use it outside TUI-OS too:
+#   cp eink.yaml ~/.config/k9s/skins/  and set  k9s.ui.skin: eink
+k9s:
+  body:
+    fgColor: "#ffffff"
+    bgColor: "#000000"
+    logoColor: "#00ff00"
+  prompt:
+    fgColor: "#ffffff"
+    bgColor: "#000000"
+    suggestColor: "#00ff00"
+  info:
+    fgColor: "#00ff00"
+    sectionColor: "#ffffff"
+  dialog:
+    fgColor: "#ffffff"
+    bgColor: "#000000"
+    buttonFgColor: "#ffffff"
+    buttonBgColor: "#0000ff"
+    buttonFocusFgColor: "#ffffff"
+    buttonFocusBgColor: "#ff0000"
+    labelFgColor: "#00ff00"
+    fieldFgColor: "#ffffff"
+  frame:
+    border:
+      fgColor: "#ffffff"
+      focusColor: "#00ff00"
+    menu:
+      fgColor: "#ffffff"
+      keyColor: "#00ff00"
+      numKeyColor: "#00ff00"
+    crumbs:
+      fgColor: "#ffffff"
+      bgColor: "#000000"
+      activeColor: "#0000ff"
+    status:
+      newColor: "#00ff00"
+      modifyColor: "#ffff00"
+      addColor: "#00ff00"
+      pendingColor: "#ffff00"
+      errorColor: "#ff0000"
+      highlightColor: "#00ff00"
+      killColor: "#ff0000"
+      completedColor: "#ffffff"
+    title:
+      fgColor: "#ffffff"
+      bgColor: "#000000"
+      highlightColor: "#00ff00"
+      counterColor: "#00ff00"
+      filterColor: "#ffff00"
+  views:
+    charts:
+      bgColor: "#000000"
+      chartBgColor: "#000000"
+      dialBgColor: "#000000"
+      defaultDialColors:
+        - "#00ff00"
+        - "#ff0000"
+      defaultChartColors:
+        - "#00ff00"
+        - "#ff0000"
+    table:
+      fgColor: "#ffffff"
+      bgColor: "#000000"
+      cursorFgColor: "#ffffff"
+      cursorBgColor: "#0000ff"
+      markColor: "#ffff00"
+      header:
+        fgColor: "#00ff00"
+        bgColor: "#000000"
+        sorterColor: "#ffff00"
+    xray:
+      fgColor: "#ffffff"
+      bgColor: "#000000"
+      cursorColor: "#0000ff"
+      cursorTextColor: "#ffffff"
+      graphicColor: "#00ff00"
+      showIcons: false
+    yaml:
+      keyColor: "#00ff00"
+      colonColor: "#ffffff"
+      valueColor: "#ffffff"
+    logs:
+      fgColor: "#ffffff"
+      bgColor: "#000000"
+      indicator:
+        fgColor: "#ffffff"
+        bgColor: "#0000ff"
+        toggleOnColor: "#00ff00"
+        toggleOffColor: "#ffffff"
+  help:
+    fgColor: "#ffffff"
+    bgColor: "#000000"
+    sectionColor: "#00ff00"
+    keyColor: "#00ff00"
+    numKeyColor: "#00ff00"

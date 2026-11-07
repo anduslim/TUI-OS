@@ -307,6 +307,45 @@ DataTable:focus {
     background-tint: transparent;
 }
 
+/* Native WebView sits exactly over this (APK). Black underneath, so a
+   page that's still loading shows the background, not stale cells. */
+#websurface {
+    height: 1fr;
+    width: 1fr;
+    background: $eink-bg;
+    border-left: heavy $eink-bg;
+}
+
+#websurface:focus {
+    border-left: $frame-focus;
+}
+
+/* ---- k9s ------------------------------------------------------------- */
+#k9s-pane {
+    height: 1fr;
+}
+
+#k9s-frame {
+    height: 1fr;
+    border: $frame;
+    border-title-color: $eink-green;
+    border-title-style: bold;
+}
+
+#k9s-frame:focus-within {
+    border: $frame-focus;
+}
+
+#k9s-idle {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#k9s-term {
+    height: 1fr;
+    width: 1fr;
+}
+
 /* ---- footer & notifications ------------------------------------------- */
 Footer {
     background: $eink-bg;

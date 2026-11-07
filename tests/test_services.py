@@ -85,6 +85,13 @@ def test_html_render_numbers_links():
 
 def test_normalise_url():
     assert normalise_url("example.com") == "https://example.com"
+    # Tailscale: MagicDNS (no dot), tailnet IPs, *.ts.net and ports → http
+    assert normalise_url("olares-one") == "http://olares-one"
+    assert normalise_url("olares-one:8080/grafana") == "http://olares-one:8080/grafana"
+    assert normalise_url("100.101.102.103:9090") == "http://100.101.102.103:9090"
+    assert normalise_url("olares-one.tail1234.ts.net") == "http://olares-one.tail1234.ts.net"
+    assert normalise_url("localhost:11434") == "http://localhost:11434"
+    assert normalise_url("kubernetes").startswith("https://lite.duckduckgo.com")
     assert normalise_url("about:help") == "about:help"
     assert normalise_url("textual docs").startswith("https://lite.duckduckgo.com/lite/?q=textual+docs")
 
