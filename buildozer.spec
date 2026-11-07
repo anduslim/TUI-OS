@@ -52,7 +52,12 @@ android.presplash_color = #000000
 # ==============================================================================
 
 # (int) Android API target. Android 11 is API 30.
-android.api = 30
+# TUI-OS: this is the *compile/target* SDK, not the OS the app runs on. The
+# SDL2 bootstrap's Java code uses API 31 symbols (BLUETOOTH_CONNECT), so the
+# build fails below 31. 33 is python-for-android's tested default. The app
+# still installs and runs on the Tab Ultra C's Android 11: that's governed by
+# android.minapi below.
+android.api = 33
 
 # (int) Minimum API required
 android.minapi = 21
