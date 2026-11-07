@@ -1,7 +1,9 @@
-# Android APK: build on PRs and main (artifact), publish GitHub Releases on tags.
+# Android APK: build on PRs and main (artifact), publish GitHub Releases.
 #
-#   git tag v1.1.0 && git push origin v1.1.0
-#     -> tests -> APK (version from the tag) -> GitHub Release with the APK
+# Two ways to release (both: tests -> APK -> GitHub Release with the APK):
+#   * Actions tab -> "Android APK" -> Run workflow -> release: 1.1.0
+#     (creates the tag v1.1.0 on the selected commit)
+#   * git tag v1.1.0 && git push origin v1.1.0
 #
 # Signing: add these repository secrets for a release-signed APK with a
 # stable key (needed for in-place updates across releases):
@@ -19,14 +21,19 @@ on:
     branches: ["main"]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a GitHub Release for this version (e.g. 1.1.0). Empty = build artifact only."
+        required: false
+        default: ""
 
 concurrency:
-  group: apk-${{ github.ref }}
+  group: apk-${{ github.ref }}-${{ github.event_name }}-${{ inputs.release }}
   cancel-in-progress: true
 
 jobs:
   tests:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release != ''))
     uses: ./.github/workflows/tests.yml
 
   apk:
@@ -35,6 +42,7 @@ jobs:
     outputs:
       apk_name: ${{ steps.collect.outputs.apk_name }}
       signed: ${{ steps.signing.outputs.signed }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -77,8 +85,12 @@ jobs:
 
       - name: Version
         id: version
+        env:
+          RELEASE_INPUT: ${{ inputs.release }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ -n "$RELEASE_INPUT" ]]; then
+            v="${RELEASE_INPUT#v}"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             v="${GITHUB_REF_NAME#v}"
           else
             v="$(sed -n 's/^version = //p' buildozer.spec)"
@@ -90,8 +102,9 @@ jobs:
         id: signing
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          IS_RELEASE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release != '')) }}
         run: |
-          if [[ -n "$KEYSTORE_B64" && "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ -n "$KEYSTORE_B64" && "$IS_RELEASE" == "true" ]]; then
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
             echo "P4A_RELEASE_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
             echo "signed=true" >> "$GITHUB_OUTPUT"
@@ -130,7 +143,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release != ''))
     needs: [tests, apk]
     runs-on: ubuntu-latest
     permissions:
@@ -144,11 +157,14 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.apk.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Olares Workspace TUI v${{ needs.apk.outputs.version }}
           files: dist/*
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.apk.outputs.version, '-') }}
           body: |
-            **Olares Workspace TUI ${{ github.ref_name }}**: native Android APK for the Onyx Boox Tab Ultra C (arm64-v8a, Android 11+).
+            **Olares Workspace TUI v${{ needs.apk.outputs.version }}**: native Android APK for the Onyx Boox Tab Ultra C (arm64-v8a, Android 11+).
 
             Install: download `${{ needs.apk.outputs.apk_name }}`, then `adb install -r <apk>` or open it on the tablet.
             Signing: ${{ needs.apk.outputs.signed == 'true' && 'release keystore' || 'debug key (add the ANDROID_KEYSTORE_* secrets for stable release signing)' }}.
