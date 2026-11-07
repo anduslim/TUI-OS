@@ -16,3 +16,8 @@ jobs:
           python-version: "3.11"  # the CPython python-for-android ships
       - run: pip install -e '.[dev]'
       - run: pytest -q
+      - name: buildozer.spec requirements resolve together
+        run: |
+          python tools/spec_requirements.py > /tmp/apk-reqs.txt
+          cat /tmp/apk-reqs.txt
+          pip install --dry-run --ignore-installed -r /tmp/apk-reqs.txt

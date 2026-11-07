@@ -18,7 +18,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ini,css,tcss,toml,ttf,txt
 
 # TUI-OS: keep tests, design scratch and build output out of the APK
-source.exclude_dirs = tests, bin, .buildozer, .git, .github, design, __pycache__
+source.exclude_dirs = tests, tools, bin, .buildozer, .git, .github, design, __pycache__
 
 # (str) Application version
 version = 1.0.0
@@ -32,7 +32,7 @@ version = 1.0.0
 # every transitive dependency is pinned explicitly for a reproducible build.
 requirements = hostpython3, python3, kivy,
     textual==8.2.8, rich==15.0.0, markdown-it-py==4.2.0, mdit-py-plugins==0.6.1,
-    mdurl==0.1.2, linkify-it-py==2.2.0, uc-micro-py==1.0.3, platformdirs==4.14.5,
+    mdurl==0.1.2, linkify-it-py==2.2.0, uc-micro-py==2.0.0, platformdirs==4.14.5,
     pygments==2.21.0, typing_extensions==4.16.0,
     httpx==0.28.1, httpcore==1.0.9, h11==0.16.0, anyio==4.15.1, sniffio==1.3.1,
     certifi, idna==3.20,
