@@ -26,6 +26,7 @@ from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
+from textual.message import Message
 from textual.timer import Timer
 from textual.widgets import Input, Static
 from textual.worker import Worker, WorkerState
@@ -112,6 +113,14 @@ class ResponseBlock(Static):
 
 
 class TerminalPane(Vertical):
+    class LlmState(Message):
+        """Model + processing state, shown in the telemetry panel's Ollama node."""
+
+        def __init__(self, model: str, state: str) -> None:
+            super().__init__()
+            self.model = model
+            self.state = state
+
     BINDINGS = [
         Binding("escape", "cancel_stream", "Cancel", show=True),
         Binding("pageup", "page_up", "PgUp", show=False),
@@ -144,7 +153,7 @@ class TerminalPane(Vertical):
         yield prompt
 
     def on_mount(self) -> None:
-        self._set_header("connecting…", ok=None)
+        self._set_header("connecting…", ok=None, state="connecting")
         if self.flush_interval > 0:
             self._flush_timer = self.set_interval(self.flush_interval, self._flush, pause=True)
         self._log(Text("TUI-OS terminal · local LLM via Ollama · /help for commands", STYLE_DIM))
@@ -159,7 +168,9 @@ class TerminalPane(Vertical):
         return self._active is not None
 
     # ----------------------------------------------------------------- helpers
-    def _set_header(self, status: str, *, ok: bool | None) -> None:
+    def _set_header(self, status: str, *, ok: bool | None, state: str | None = None) -> None:
+        if state is not None:
+            self.post_message(self.LlmState(self.client.model, state))
         mark, style = {True: ("●", STYLE_PROMPT), False: ("✗", "bold #FF0000"), None: ("○", STYLE_DIM)}[ok]
         header = Text()
         header.append(f" {mark} ", style)
@@ -190,12 +201,12 @@ class TerminalPane(Vertical):
         try:
             models = await self.client.list_models()
         except httpx.HTTPError as exc:
-            self._set_header(f"unreachable ({type(exc).__name__})", ok=False)
+            self._set_header(f"unreachable ({type(exc).__name__})", ok=False, state="unreachable")
             return
         if models and self.client.model not in models:
-            self._set_header(f"model not pulled · {len(models)} available (/models)", ok=False)
+            self._set_header(f"model not pulled · {len(models)} available (/models)", ok=False, state="not pulled")
         else:
-            self._set_header(f"ready · {len(models)} models", ok=True)
+            self._set_header(f"ready · {len(models)} models", ok=True, state="ready")
 
     @work(exclusive=True, group="ollama", exit_on_error=False)
     async def _stream_reply(self, prompt: str) -> None:
@@ -206,7 +217,7 @@ class TerminalPane(Vertical):
         self.transcript.scroll_end(animate=False)
         if self._flush_timer:
             self._flush_timer.resume()
-        self._set_header("generating…", ok=True)
+        self._set_header("generating… · esc to cancel", ok=True, state="generating")
         started = time.monotonic()
         final_stats = None
         try:
@@ -231,14 +242,14 @@ class TerminalPane(Vertical):
         if tps:
             summary += f" · {tps:.1f} tok/s"
         self._log(Text(f"  ── {summary}", STYLE_DIM), classes="meta")
-        self._set_header("ready", ok=True)
+        self._set_header("ready", ok=True, state="ready")
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.group != "ollama":
             return
         if event.state == WorkerState.CANCELLED:
             self._log(Text(" cancelled ", STYLE_ERROR), classes="meta")
-            self._set_header("cancelled", ok=None)
+            self._set_header("cancelled", ok=None, state="cancelled")
         elif event.state == WorkerState.ERROR:
             err = event.worker.error
             if isinstance(err, OllamaError):
@@ -248,7 +259,7 @@ class TerminalPane(Vertical):
             else:
                 msg = f"{type(err).__name__}: {err}"
             self._log(Text(f" error ", STYLE_ERROR) + Text(f" {msg}", "bold #FF0000"), classes="meta")
-            self._set_header("error", ok=False)
+            self._set_header("error", ok=False, state="error")
 
     # ----------------------------------------------------------------- input
     @on(Input.Submitted, "#prompt")

@@ -39,6 +39,8 @@ from kivy.uix.widget import Widget  # noqa: E402
 from kivy.utils import platform  # noqa: E402
 
 from .bridge import DEFAULT_BG, Run, TerminalBridge  # noqa: E402
+from .glyphs import DRAWN, cell_rects  # noqa: E402
+from .grid import GRID_COLS, GRID_ROWS, GridGeometry  # noqa: E402
 from .keymap import CharKey, NamedKey, translate_keydown  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,7 +49,6 @@ FONT_REGULAR = FONT_DIR / "JetBrainsMonoNL-Regular.ttf"
 FONT_BOLD = FONT_DIR / "JetBrainsMonoNL-Bold.ttf"
 BUNDLED_CONFIG = ROOT / "android" / "config.toml"
 
-FONT_SIZE = 28  # px; 1240 px CSS grid × 2 on the 2480×1860 panel
 REFRESH_HZ = 20
 SWIPE_ROWS = 3
 TEXT_FALLBACK_DELAY = 0.06
@@ -58,12 +59,13 @@ def _rgb(hex6: str) -> tuple[float, float, float, float]:
 
 
 class TerminalView(Widget):
-    def __init__(self, bridge: TerminalBridge, *, font_size: int = FONT_SIZE, **kw) -> None:
+    """Paints the bridge's fixed 147×46 cell grid, scaled to fit the window."""
+
+    def __init__(self, bridge: TerminalBridge, **kw) -> None:
         super().__init__(**kw)
         self.bridge = bridge
-        self.font_size = font_size
+        self.grid = GridGeometry.fit(1, 1)
         self._fonts = {False: str(FONT_REGULAR), True: str(FONT_BOLD)}
-        self.cell_w, self.cell_h = self._measure()
         self._rows: dict[int, InstructionGroup] = {}
         self._textures: dict[tuple[str, str, bool], object] = {}
         self._touch_start: tuple[float, float] | None = None
@@ -74,19 +76,16 @@ class TerminalView(Widget):
         Clock.schedule_interval(self._poll, 1 / REFRESH_HZ)
 
     # ------------------------------------------------------------ geometry
-    def _measure(self) -> tuple[float, float]:
-        label = CoreLabel(text="M" * 20, font_size=self.font_size, font_name=self._fonts[False])
-        label.refresh()
-        w, h = label.texture.size
-        return w / 20, float(h)
-
     def grid_size(self) -> tuple[int, int]:
-        return int(self.width // self.cell_w), int(self.height // self.cell_h)
+        return GRID_COLS, GRID_ROWS
 
     def _on_geometry(self, *_a) -> None:
         self._bg.pos, self._bg.size = self.pos, self.size
-        cols, rows = self.grid_size()
-        self.bridge.resize(cols, rows)
+        grid = GridGeometry.fit(self.width, self.height)
+        if grid.font_px != self.grid.font_px:
+            self._textures.clear()
+        self.grid = grid
+        self.bridge.resize(GRID_COLS, GRID_ROWS)
         self.full_redraw()
 
     def full_redraw(self) -> None:
@@ -96,7 +95,7 @@ class TerminalView(Widget):
         self.bridge.mark_all_dirty()
 
     def cell_at(self, x: float, y: float) -> tuple[int, int]:
-        return int((x - self.x) // self.cell_w), int((self.top - y) // self.cell_h)
+        return self.grid.cell_at(x - self.x, self.top - y)
 
     # ------------------------------------------------------------- painting
     def _poll(self, _dt: float) -> None:
@@ -108,7 +107,7 @@ class TerminalView(Widget):
         tex = self._textures.get(key)
         if tex is None:
             label = CoreLabel(
-                text=text, font_size=self.font_size, font_name=self._fonts[bold], color=_rgb(fg)
+                text=text, font_size=self.grid.font_px, font_name=self._fonts[bold], color=_rgb(fg)
             )
             label.refresh()
             tex = label.texture
@@ -117,30 +116,52 @@ class TerminalView(Widget):
             self._textures[key] = tex
         return tex
 
-    def _paint_row(self, y: int, runs: list[Run]) -> None:
-        old = self._rows.pop(y, None)
+    def _rect(self, group: InstructionGroup, x: int, y_down: int, w: int, h: int) -> None:
+        """Add a rectangle given in top-down pixel coordinates."""
+        group.add(Rectangle(pos=(self.x + x, self.top - y_down - h), size=(w, h)))
+
+    def _paint_row(self, row: int, runs: list[Run]) -> None:
+        old = self._rows.pop(row, None)
         if old is not None:
             self.canvas.remove(old)
+        g = self.grid
         group = InstructionGroup()
-        top = self.top - (y + 1) * self.cell_h
+        y0, y1 = g.row_edge(row), g.row_edge(row + 1)
         for run in runs:
-            x = self.x + run.col * self.cell_w
-            width = len(run.text) * self.cell_w
+            x0, x1 = g.col_edge(run.col), g.col_edge(run.col + len(run.text))
             if run.bg != DEFAULT_BG:
                 group.add(Color(*_rgb(run.bg)))
-                group.add(Rectangle(pos=(x, top), size=(width, self.cell_h)))
-            if run.text.strip():
-                tex = self._texture(run.text, run.fg, run.bold)
-                group.add(Color(1, 1, 1, 1))
-                # Texture heights differ by a pixel or two between runs;
-                # pin each to the top of its cell so baselines line up.
-                ty = top + self.cell_h - tex.height
-                group.add(Rectangle(texture=tex, pos=(x, ty), size=tex.size))
+                self._rect(group, x0, y0, x1 - x0, y1 - y0)
+            fg = _rgb(run.fg)
+            # Split the run: box/block glyphs as rectangles, the rest as text.
+            seg_start, seg = run.col, []
+            for i, ch in enumerate(run.text + "\0"):
+                col = run.col + i
+                if ch in DRAWN or ch == "\0":
+                    if seg and "".join(seg).strip():
+                        self._paint_text(group, "".join(seg), seg_start, y0, y1, run)
+                    seg, seg_start = [], col + 1
+                    if ch in DRAWN:
+                        group.add(Color(*fg))
+                        cx0, cx1 = g.col_edge(col), g.col_edge(col + 1)
+                        for r in cell_rects(ch, cx0, y0, cx1, y1, g.scale):
+                            self._rect(group, *r)
+                else:
+                    seg.append(ch)
             if run.underline:
-                group.add(Color(*_rgb(run.fg)))
-                group.add(Rectangle(pos=(x, top + 2), size=(width, 2)))
+                group.add(Color(*fg))
+                t = max(1, round(g.scale))
+                self._rect(group, x0, y1 - 2 * t, x1 - x0, t)
         self.canvas.add(group)
-        self._rows[y] = group
+        self._rows[row] = group
+
+    def _paint_text(self, group, text: str, col: int, y0: int, y1: int, run: Run) -> None:
+        tex = self._texture(text, run.fg, run.bold)
+        group.add(Color(1, 1, 1, 1))
+        x = self.x + self.grid.col_edge(col)
+        # Centre vertically in the cell; integer position keeps glyphs sharp.
+        y_down = y0 + ((y1 - y0) - tex.height) // 2
+        group.add(Rectangle(texture=tex, pos=(x, self.top - y_down - tex.height), size=tex.size))
 
     # ---------------------------------------------------------------- touch
     def on_touch_down(self, touch) -> bool:
@@ -154,7 +175,7 @@ class TerminalView(Widget):
             return False
         sx, sy = self._touch_start
         self._touch_start = None
-        dy = (touch.y - sy) / self.cell_h
+        dy = (touch.y - sy) / self.grid.cell_h
         if abs(dy) >= SWIPE_ROWS and abs(touch.y - sy) > abs(touch.x - sx):
             # Finger moves up -> content goes forward a page.
             self.bridge.send_key("pagedown" if dy > 0 else "pageup")

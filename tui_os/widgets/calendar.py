@@ -14,8 +14,8 @@ from textual.widgets import Static
 from .. import mock_data
 
 STYLE_BAR = "bold #FFFFFF on #0000FF"
-STYLE_SELECTED = "bold #FFFFFF on #0000FF"
-STYLE_TODAY = "bold #000000 on #00FF00"
+STYLE_SELECTED = "bold #FFFFFF on #0000FF"  # selected: solid blue block
+STYLE_TODAY = "bold #00FF00"  # today: green numerals
 STYLE_BUSY = "bold underline #FFFFFF"
 STYLE_TIME = "bold #00FF00"
 

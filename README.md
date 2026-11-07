@@ -127,7 +127,12 @@ names, override them under `[queries]`. The panel lists any metric that returns 
 
 ```
 tui_os/
-├── host/                APK host: embedded driver + pyte bridge, keymap, Kivy view
+├── host/                APK host (no terminal needed)
+│   ├── bridge.py        Embedded Textual driver + pyte screen + input injection
+│   ├── grid.py          147×46 logical grid → device pixels
+│   ├── glyphs.py        Pixel-exact box-drawing / block characters
+│   ├── keymap.py        Hardware keyboard → Textual keys
+│   └── kivy_app.py      Full-screen landscape Kivy app
 ├── app.py               App shell: layout, Ctrl+B toggle, tab keys, telemetry worker
 ├── app.tcss             E-ink stylesheet (design tokens at the top)
 ├── theme.py             "eink-dark" Textual theme: pure #000/#FFF + solid accents
@@ -156,19 +161,35 @@ interval. A failed poll shows as `OFFLINE` in the panel and does not stop the lo
 worker, which closes the HTTP stream. The `context` returned by Ollama is passed back
 on the next prompt, so a conversation keeps its history across turns.
 
-### E-ink design rules (enforced in code)
+### Interface spec (enforced in code and by `tests/test_spec.py`)
+
+| Rule | Implementation |
+|------|----------------|
+| Six colours only: `#000000 #FFFFFF #00FF00 #0000FF #FFFF00 #FF0000` | Theme with `luminosity_spread=0`. Textual's built-in tints (DataTable header, palette separator) are overridden. A test renders every screen through the APK bridge and checks every cell. |
+| Blue is a fill only, with white text. Green fill takes black text. Red fill takes white text. | Tabs, status bars, selections and code fences: white on blue. Title chip: black on green. Critical meters: white on red. |
+| JetBrains Mono 14/20 everywhere, no size hierarchy. Italic only for placeholders. | Bold and solid colour blocks carry hierarchy. Font is bundled in `assets/fonts/` (OFL). |
+| Cell grid 8.4 × 20 px, 147 × 46 cells | The APK host locks Textual to 147×46 and scales cells to the panel (2.008× = 16.87 × 40.2 px on 2480×1860, `tui_os/host/grid.py`). |
+| Meters: exactly 20 cells of `█` and `·`, never `░▒▓` | `telemetry_panel.bar()` |
+| Panel titles inside the top border. Focus = heavy green border. | `border-title`. Inputs and the calendar box switch `solid` white to `heavy` green. Mail and Browser use a heavy left gutter that is always present, so focus changes colour and never shifts layout. |
+| `LIVE` / `OFFLINE` in the telemetry bottom border | `border-subtitle`, red when offline |
+| Active tab = solid blue, no sliding underline | The `Underline` widget is hidden and `Tabs` is 1 row high |
+| Static green block cursor | `cursor_blink = False`, green `input--cursor` |
+| Status bars white on blue. Key hints: green key, white label. | Mail, Calendar and Browser bars; `Footer` |
+| Telemetry rows: label + value, then meter. Ollama node. States ok / warn / offline. | `MetricRow`, `LlmNode`, `TelemetryPanel.state`. The terminal posts `LlmState` messages to the panel. |
+
+E-ink behaviour on top of that:
 
 * **No animation.** `App.animation_level = "none"`, and every scroll call passes
-  `animate=False`. Hiding the sidebar is a single layout change, with no slide.
-* **Paging, not smooth scrolling.** Use Space/PgUp/PgDn in the transcript, pager and
-  browser.
-* **Fewer repaints.** Tokens are repainted in batches. Telemetry values are rounded
-  (whole °C, 0.1 GB, 20-cell bars) and a row repaints only when its rendered text
-  changes. The clock updates once a minute, and the input cursor does not blink.
-* **Pure colours only.** Black `#000000` backgrounds, white `#FFFFFF` text, and solid
-  green `#00FF00`, blue `#0000FF`, yellow `#FFFF00` and red `#FF0000`.
-  `luminosity_spread=0` so Textual does not generate grey shades, there are no
-  `░▒▓` dithered glyphs, and hover effects are turned off.
+  `animate=False`. Ctrl+B is a single layout change: the workspace takes back the 30
+  columns in the same frame.
+* **Paging, not smooth scrolling.** Use Space/PgUp/PgDn in the app, or a vertical swipe
+  on the tablet.
+* **Fewer repaints.** LLM tokens are repainted in batches (350 ms). Telemetry is rounded
+  first (whole °C, 0.1 GB, 5 % meter steps) and a row repaints only when its rendered
+  text changes. The clock updates once a minute. The host only redraws dirty rows.
+* **Crisp edges.** The host draws box-drawing and block characters as pixel-snapped
+  rectangles (`tui_os/host/glyphs.py`), so borders join without gaps and never
+  anti-alias to grey.
 
 ## Development
 

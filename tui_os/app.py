@@ -90,6 +90,9 @@ class TitleBar(Static):
 class TuiOS(App[None]):
     CSS_PATH = Path(__file__).with_name("app.tcss")
     TITLE = "TUI-OS"
+    # The command palette is a modal overlay with its own (grey) styling and
+    # a footer entry; nothing in the E-ink spec needs it.
+    ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
         Binding("ctrl+b", "toggle_telemetry", "Telemetry", priority=True),
@@ -192,6 +195,9 @@ class TuiOS(App[None]):
         # Hidden widgets are not painted, but keep their state current so the
         # panel is correct the instant it is re-opened.
         panel.apply_snapshot(snap, max_net=self._net_peak)
+
+    def on_terminal_pane_llm_state(self, message: TerminalPane.LlmState) -> None:
+        self.query_one(TelemetryPanel).set_llm(message.model, message.state)
 
     # ----------------------------------------------------------------- actions
     def action_toggle_telemetry(self) -> None:

@@ -130,3 +130,50 @@ def test_bridge_exit_sets_finished():
     assert b.ready.wait(10)
     b.send_key("ctrl+q", "\x11")
     assert b.finished.wait(5) and exited == [b] and b.error is None
+
+
+# ------------------------------------------------------------ grid & glyphs
+def test_grid_fits_boox_panel_at_spec_metrics():
+    from tui_os.host.grid import GRID_COLS, GRID_ROWS, GridGeometry
+
+    g = GridGeometry.fit(2480, 1860)
+    assert (GRID_COLS, GRID_ROWS) == (147, 46)
+    assert g.scale == pytest.approx(2480 / 1234.8)
+    assert g.cell_w == pytest.approx(16.87, abs=0.01) and g.cell_h == pytest.approx(40.17, abs=0.01)
+    assert g.font_px == pytest.approx(28.12, abs=0.01)
+    assert g.col_edge(0) == 0 and g.col_edge(147) == 2480
+    assert 0 <= g.row_edge(0) <= 10 and g.row_edge(46) <= 1860
+    # Adjacent cells share edges: widths differ by at most one pixel.
+    widths = {g.col_edge(c + 1) - g.col_edge(c) for c in range(147)}
+    assert widths <= {16, 17}
+    assert g.cell_at(2479, 1859) == (146, 45) and g.cell_at(0, 0) == (0, 0)
+
+
+def test_logical_viewport_is_scale_one():
+    from tui_os.host.grid import GridGeometry
+
+    g = GridGeometry.fit(1240, 930)
+    assert g.scale == pytest.approx(1240 / 1234.8) and g.font_px == pytest.approx(14.06, abs=0.01)
+
+
+def test_box_glyphs_reach_cell_edges_and_join():
+    from tui_os.host.glyphs import DRAWN, cell_rects
+
+    x0, y0, x1, y1 = 100, 200, 117, 240
+    def extent(rects):
+        return (min(r[0] for r in rects), min(r[1] for r in rects),
+                max(r[0] + r[2] for r in rects), max(r[1] + r[3] for r in rects))
+
+    v = cell_rects("│", x0, y0, x1, y1, 2.0)
+    ex = extent(v)
+    assert ex[1] == y0 and ex[3] == y1 and ex[2] - ex[0] == 2  # full height, 2 px light
+    # The two arms meet with no gap.
+    up, down = sorted(v, key=lambda r: r[1])
+    assert up[1] + up[3] >= down[1]
+    assert {r[2] for r in cell_rects("┃", x0, y0, x1, y1, 2.0)} == {4}  # heavy = 2 logical px
+    corner = cell_rects("┌", x0, y0, x1, y1, 2.0)
+    assert any(r[0] + r[2] == x1 for r in corner) and any(r[1] + r[3] == y1 for r in corner)
+    assert cell_rects("█", x0, y0, x1, y1, 2.0) == [(x0, y0, 17, 40)]
+    assert cell_rects("▌", x0, y0, x1, y1, 2.0)[0][2] in (8, 9)
+    assert cell_rects("A", x0, y0, x1, y1, 2.0) == []
+    assert {"─", "│", "┏", "━", "╸", "█", "▁", "▊"} <= DRAWN and "·" not in DRAWN
