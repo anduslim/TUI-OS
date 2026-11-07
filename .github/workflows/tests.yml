@@ -4,6 +4,7 @@ on:
   push:
     branches: ["main", "claude/**"]
   pull_request:
+  workflow_call:  # release gate in apk.yml
 
 jobs:
   pytest:
@@ -21,3 +22,5 @@ jobs:
           python tools/spec_requirements.py > /tmp/apk-reqs.txt
           cat /tmp/apk-reqs.txt
           pip install --dry-run --ignore-installed -r /tmp/apk-reqs.txt
+      - name: Java helper compiles (WebView)
+        run: python tools/check_java.py

@@ -225,6 +225,14 @@ class TerminalBridge:
         loop.call_soon_threadsafe(driver.process_message, event)
         return True
 
+    def call_in_app(self, callback: Callable[["App[Any]"], None]) -> bool:
+        """Run ``callback(app)`` on the app's event loop (thread-safe)."""
+        app, loop = self.app, self._loop
+        if app is None or loop is None or loop.is_closed():
+            return False
+        loop.call_soon_threadsafe(callback, app)
+        return True
+
     def send_key(self, key: str, character: str | None = None) -> bool:
         """Send a named key, e.g. ``"ctrl+b"``, ``"f2"``, ``"pagedown"``."""
         return self._dispatch(events.Key(key, character))

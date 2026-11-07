@@ -65,6 +65,10 @@ class BrowserPane(Vertical):
             yield Static("", id="page-body")
         yield Static("", id="browser-status", classes="bar")
 
+    @property
+    def focus_target(self):
+        return self.query_one("#viewport", BrowserViewport)
+
     def on_mount(self) -> None:
         self._client = web.make_client()
         self.navigate(self.home)

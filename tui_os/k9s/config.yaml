@@ -1,0 +1,14 @@
+# k9s config used by the TUI-OS K9s tab (K9S_CONFIG_DIR=~/.config/tui-os/k9s).
+# Your own ~/.config/k9s is left untouched; kubeconfig is read as usual.
+k9s:
+  # E-ink: slower refresh. Rows repaint only when their data changes, but
+  # each change is a physical panel update.
+  refreshRate: 5
+  ui:
+    skin: eink
+    enableMouse: false
+    headless: false
+    logoless: true
+    crumbsless: false
+    noIcons: true   # emoji icons aren't in JetBrains Mono
+    reactive: false

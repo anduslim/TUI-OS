@@ -37,11 +37,14 @@ from .services.telemetry import (
 from .theme import EINK_THEME
 from .widgets.browser import BrowserPane
 from .widgets.calendar import CalendarPane
+from .widgets.k9s import K9sPane, SessionFactory
+from .widgets.webview import WebBrowserPane
+from .host.services import HostServices, WebViewEvent
 from .widgets.mail import MailPane
 from .widgets.telemetry_panel import TelemetryPanel
 from .widgets.terminal import TerminalPane
 
-TABS = ("terminal", "mail", "calendar", "browser")
+TABS = ("terminal", "mail", "calendar", "browser", "k9s")
 
 
 class TelemetryUpdated(Message):
@@ -100,6 +103,7 @@ class TuiOS(App[None]):
         Binding("f2,alt+2", "show_tab('mail')", "Mail", priority=True),
         Binding("f3,alt+3", "show_tab('calendar')", "Cal", priority=True),
         Binding("f4,alt+4", "show_tab('browser')", "Web", priority=True),
+        Binding("f5,alt+5", "show_tab('k9s')", "K9s", priority=True),
         Binding("ctrl+r", "refresh_screen", "Redraw", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
@@ -111,11 +115,16 @@ class TuiOS(App[None]):
         telemetry_source: TelemetrySource | None = None,
         ollama_client: OllamaClient | None = None,
         driver_class: type[Driver] | None = None,
+        k9s_session_factory: SessionFactory | None = None,
+        host: HostServices | None = None,
     ) -> None:
         # driver_class lets a non-terminal host (the Android/Kivy shell)
         # supply its own Driver instead of the TTY-based Linux driver.
         super().__init__(driver_class=driver_class)
         self.settings = settings or Settings.load()
+        self._k9s_factory = k9s_session_factory
+        #: Native services when embedded in the APK (WebView); None in a terminal.
+        self.host = host
         # E-ink: every animation (tab underline slide, smooth scroll, fades)
         # completes instantly. One state change -> one repaint.
         self.animation_level = "none"
@@ -152,7 +161,12 @@ class TuiOS(App[None]):
                 with TabPane("3 Calendar", id="calendar"):
                     yield CalendarPane(id="calendar-pane")
                 with TabPane("4 Browser", id="browser"):
-                    yield BrowserPane(home=self.settings.browser_home, id="browser-pane")
+                    if self.host is not None and self.host.webview_available:
+                        yield WebBrowserPane(self.host, home=self.settings.browser_home, id="browser-pane")
+                    else:
+                        yield BrowserPane(home=self.settings.browser_home, id="browser-pane")
+                with TabPane("5 K9s (Cluster)", id="k9s"):
+                    yield K9sPane(self.settings, session_factory=self._k9s_factory, id="k9s-pane")
         yield Footer(compact=True)
 
     def on_mount(self) -> None:
@@ -198,6 +212,12 @@ class TuiOS(App[None]):
         # panel is correct the instant it is re-opened.
         panel.apply_snapshot(snap, max_net=self._net_peak)
 
+    def on_web_view_event(self, event: WebViewEvent) -> None:
+        """Host WebView events arrive at the app; hand them to the browser pane."""
+        pane = self.query(WebBrowserPane).first() if self.query(WebBrowserPane) else None
+        if pane is not None:
+            pane.on_web_view_event(event)
+
     def on_terminal_pane_llm_state(self, message: TerminalPane.LlmState) -> None:
         panel = self._panel()
         if panel is not None:
@@ -223,25 +243,30 @@ class TuiOS(App[None]):
         self.query_one("#workspace", TabbedContent).active = tab
         self._focus_tab(tab)
 
-    def _focus_tab(self, tab: str) -> None:
-        target = {
-            "terminal": "#prompt",
-            "mail": "#mail-index",
-            "calendar": "#calendar-pane",
-            "browser": "#viewport",
-        }[tab]
+    _FOCUS = {"terminal": "#prompt", "mail": "#mail-index", "calendar": "#calendar-pane"}
 
+    def _focus_target(self, tab: str):
+        """Panes with changing internals (browser, k9s) say what to focus."""
+        if tab in self._FOCUS:
+            return self.query_one(self._FOCUS[tab])
+        return self.query_one(f"#{tab}-pane").focus_target
+
+    def _focus_tab(self, tab: str) -> None:
         def apply() -> None:
             # Stale request (user already moved on): do nothing, otherwise
             # TabbedContent would switch back to the pane we focus.
             if self.query_one("#workspace", TabbedContent).active == tab:
-                self.query_one(target).focus()
+                self._focus_target(tab).focus()
 
         self.call_after_refresh(apply)
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.pane.id in TABS:
             self._focus_tab(event.pane.id)
+            if event.pane.id == "k9s":
+                self.query_one(K9sPane).activate()
+            if event.pane.id == "browser" and self.query(WebBrowserPane):
+                self.call_after_refresh(self.query_one(WebBrowserPane).enter_page)
 
     def action_refresh_screen(self) -> None:
         """Full repaint — use to clear accumulated E-ink ghosting."""

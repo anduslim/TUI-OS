@@ -70,6 +70,19 @@ class Settings:
     #: Start with the telemetry sidebar visible.
     telemetry_visible: bool = True
     browser_home: str = "about:home"
+    #: K9s tab: SSH target running k9s (empty host = olares_host, which can
+    #: be a Tailscale MagicDNS name such as "olares-one").
+    k9s_host: str = ""
+    k9s_user: str = "olares"
+    k9s_port: int = 22
+    k9s_command: str = "k9s"
+    k9s_kubeconfig: str = ""
+    #: Seconds between k9s refreshes (E-ink: keep it slow).
+    k9s_refresh_rate: int = 5
+    #: Connect as soon as the K9s tab is first opened.
+    k9s_autoconnect: bool = True
+    #: Private key path; empty = <data dir>/id_ed25519 (generated on first use).
+    ssh_key_path: str = ""
     queries: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_QUERIES))
 
     # ------------------------------------------------------------------ derived
@@ -80,6 +93,20 @@ class Settings:
     @property
     def resolved_prometheus_url(self) -> str:
         return (self.prometheus_url or f"http://{self.olares_host}:9090").rstrip("/")
+
+    @property
+    def data_dir(self) -> Path:
+        """Keys and known_hosts live next to the config file (app storage on Android)."""
+        env = os.environ.get("TUI_OS_DATA")
+        return Path(env).expanduser() if env else default_config_path().parent
+
+    @property
+    def resolved_k9s_host(self) -> str:
+        return self.k9s_host or self.olares_host
+
+    @property
+    def resolved_ssh_key_path(self) -> Path:
+        return Path(self.ssh_key_path).expanduser() if self.ssh_key_path else self.data_dir / "id_ed25519"
 
     # ------------------------------------------------------------------ loading
     @classmethod
@@ -132,6 +159,8 @@ _ENV_MAP = {
     "TUI_OS_STREAM_FLUSH": "stream_flush_interval",
     "TUI_OS_DEMO": "demo_mode",
     "TUI_OS_BROWSER_HOME": "browser_home",
+    "TUI_OS_K9S_HOST": "k9s_host",
+    "TUI_OS_K9S_USER": "k9s_user",
 }
 
 

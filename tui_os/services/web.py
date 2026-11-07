@@ -187,15 +187,41 @@ def render_html(html: str, base_url: str) -> Page:
     return Page(url=base_url, title=title, body=body, links=parser.links)
 
 
+_HOSTLIKE = re.compile(
+    r"^(?P<host>\[[0-9a-fA-F:]+\]|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)(?P<port>:\d{1,5})?(?P<path>/\S*)?$"
+)
+_IPV4 = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+
+
 def normalise_url(raw: str) -> str:
-    """Turn what the user typed into a URL: about: page, URL or search."""
+    """Turn what the user typed into a URL: about: page, URL or search.
+
+    Tailnet-friendly: MagicDNS names have no dot ("olares-one"), so a bare
+    host with a port, path, hyphen or digit, an IP, ``localhost`` or a
+    ``*.ts.net`` name opens over ``http://`` (the tailnet is already
+    WireGuard-encrypted; most self-hosted services serve plain HTTP there).
+    Dotted public names get ``https://``. Anything with spaces is a search.
+    """
     raw = raw.strip()
     if not raw:
         return "about:home"
     if raw.startswith(("about:", "http://", "https://")):
         return raw
-    if " " not in raw and ("." in raw or raw.startswith("localhost")):
-        return f"https://{raw}"
+    m = _HOSTLIKE.match(raw) if " " not in raw else None
+    if m:
+        host = m.group("host").lower()
+        local = (
+            _IPV4.match(host)
+            or host.startswith("[")
+            or host == "localhost"
+            or host.endswith(".ts.net")
+            or ("." not in host and (m.group("port") or m.group("path") or "-" in host
+                                     or any(ch.isdigit() for ch in host)))
+        )
+        if local:
+            return f"http://{raw}"
+        if "." in host:
+            return f"https://{raw}"
     return f"https://lite.duckduckgo.com/lite/?q={quote_plus(raw)}"
 
 
