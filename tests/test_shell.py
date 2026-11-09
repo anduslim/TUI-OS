@@ -65,13 +65,15 @@ async def test_shell_tab_connects_at_start_and_passes_tmux_keys(ssh_server, sett
                     replace(target, mode="shell"), o, e))
     async with app.run_test(size=(147, 46)) as pilot:
         pane = app.query_one(ShellPane)
+        term = pane.query_one(TerminalEmulator)
+        # The pane focuses its terminal on the refresh after "connected",
+        # so wait for that too (slow CI runners see the gap).
         for _ in range(100):
             await pilot.pause(0.05)
-            if pane.state == "connected" and fake.sizes:
+            if pane.state == "connected" and fake.sizes and app.focused is term:
                 break
         assert pane.state == "connected", pane.error
         assert app.query_one("#workspace").active == "shell"
-        term = pane.query_one(TerminalEmulator)
         assert app.focused is term
         assert fake.sizes[0] == (term.size.width, term.size.height)
 
