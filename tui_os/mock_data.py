@@ -22,6 +22,11 @@ class MailMessage:
     flagged: bool = False
     replied: bool = False
     attachment: bool = False
+    #: Set for real IMAP messages; empty for the demo mailbox.
+    uid: str = ""
+    sender_address: str = ""
+    message_id: str = ""
+    references: str = ""
 
     @property
     def flags(self) -> str:
@@ -95,6 +100,8 @@ class Appointment:
     start: dt.time
     end: dt.time | None
     title: str
+    location: str = ""
+    all_day: bool = False
 
 
 def appointments_for(day: dt.date) -> list[Appointment]:

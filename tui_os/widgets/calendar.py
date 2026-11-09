@@ -1,17 +1,29 @@
-"""Calendar tab: calcurse-style layout (appointments | month + todo)."""
+"""Calendar tab: calcurse-style layout (appointments | month + todo).
+
+With ``ical_url`` set it shows that read-only iCal feed (Google Calendar's
+secret address) and lists the coming week where the demo TODO list was.
+"""
 
 from __future__ import annotations
 
 import calendar as pycal
 import datetime as dt
 
+from typing import TYPE_CHECKING
+
 from rich.text import Text
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
 from .. import mock_data
+from ..mock_data import Appointment
+from ..services.ical import ICalCalendar
+
+if TYPE_CHECKING:
+    from ..config import Settings
 
 STYLE_BAR = "bold #FFFFFF on #0000FF"
 STYLE_SELECTED = "bold #FFFFFF on #0000FF"  # selected: solid blue block
@@ -29,14 +41,31 @@ class CalendarPane(Vertical):
         Binding("H", "month(-1)", "◀ Month", key_display="H"),
         Binding("L", "month(1)", "Month ▶", key_display="L"),
         Binding("t", "today", "Today"),
+        Binding("g", "refresh", "Get"),
     ]
 
     can_focus = True
 
-    def __init__(self, *, id: str | None = None) -> None:
+    def __init__(self, settings: "Settings | None" = None, *, source: ICalCalendar | None = None,
+                 id: str | None = None) -> None:
         super().__init__(id=id)
+        self.settings = settings
+        if source is None and settings is not None and settings.ical_url:
+            source = ICalCalendar(settings.ical_url)
+        self.source = source
         self.today = dt.date.today()
         self.selected = self.today
+        self._by_day: dict[dt.date, list[Appointment]] = {}
+        self._state = "loading..." if source else ""
+
+    @property
+    def live(self) -> bool:
+        return self.source is not None
+
+    def appointments_for(self, day: dt.date) -> list[Appointment]:
+        if self.live:
+            return self._by_day.get(day, [])
+        return mock_data.appointments_for(day)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="cal-main"):
@@ -49,7 +78,25 @@ class CalendarPane(Vertical):
     def on_mount(self) -> None:
         self.query_one("#cal-appts").border_title = "Appointments"
         self.query_one("#cal-month").border_title = "Calendar"
-        self.query_one("#cal-todo").border_title = "TODO"
+        self.query_one("#cal-todo").border_title = "Next 7 days" if self.live else "TODO"
+        self._render_all()
+        if self.live:
+            self.refresh_calendar()
+            interval = self.settings.calendar_refresh_interval if self.settings else 0
+            if interval > 0:
+                self.set_interval(max(60.0, interval), self.refresh_calendar)
+
+    @work(exclusive=True, group="calendar-fetch", exit_on_error=False)
+    async def refresh_calendar(self) -> None:
+        assert self.source is not None
+        try:
+            self._by_day = await self.source.fetch(dt.date.today())
+        except Exception as exc:  # noqa: BLE001 - keep the tab alive, show why
+            self._state = "offline"
+            self._render_all()
+            self.app.notify(str(exc), title="Calendar", severity="error", timeout=10)
+            return
+        self._state = ""
         self._render_all()
 
     # ----------------------------------------------------------------- render
@@ -59,7 +106,8 @@ class CalendarPane(Vertical):
         self._render_todo()
         self.query_one("#cal-status", Static).update(
             Text(
-                f" {self.selected:%A %d %B %Y}   h/l:day  j/k:week  H/L:month  t:today ".ljust(200),
+                (f" {self.selected:%A %d %B %Y}   h/l:day  j/k:week  H/L:month  t:today  g:get"
+                 + (f"   [{self._state}]" if self._state else "")).ljust(200),
                 STYLE_BAR,
             )
         )
@@ -80,7 +128,7 @@ class CalendarPane(Vertical):
                     text.append(cell, STYLE_SELECTED)
                 elif day == self.today:
                     text.append(cell, STYLE_TODAY)
-                elif mock_data.appointments_for(day):
+                elif self.appointments_for(day):
                     text.append(cell, STYLE_BUSY)
                 else:
                     text.append(cell, "#FFFFFF")
@@ -88,24 +136,41 @@ class CalendarPane(Vertical):
         self.query_one("#cal-month", Static).update(text)
 
     def _render_appointments(self) -> None:
-        appts = mock_data.appointments_for(self.selected)
+        appts = self.appointments_for(self.selected)
         text = Text()
         if not appts:
             text.append("  (no appointments)", "#FFFFFF")
         for appt in appts:
-            if appt.end is None:
+            if appt.all_day:
+                text.append("  * all day      ", STYLE_TIME)
+            elif appt.end is None:
                 text.append("  * ", STYLE_TIME)
                 text.append(f"{appt.start:%H:%M}       ", STYLE_TIME)
             else:
                 text.append("  - ", STYLE_TIME)
                 text.append(f"{appt.start:%H:%M} -> {appt.end:%H:%M}", STYLE_TIME)
-            text.append(f"\n\t{appt.title}\n\n", "bold #FFFFFF")
+            text.append(f"\n\t{appt.title}\n", "bold #FFFFFF")
+            if appt.location:
+                text.append(f"\t@ {appt.location}\n", "#FFFFFF")
+            text.append("\n")
         box = self.query_one("#cal-appts", Static)
         box.update(text)
         box.border_subtitle = f"{self.selected:%a %d %b}"
 
     def _render_todo(self) -> None:
         text = Text()
+        if self.live:
+            for offset in range(1, 8):
+                day = self.today + dt.timedelta(days=offset)
+                for appt in self.appointments_for(day):
+                    text.append(f" {day:%a %d} ", STYLE_TIME)
+                    text.append("all day " if appt.all_day else f"{appt.start:%H:%M}   ", STYLE_TIME)
+                    text.append(f"{appt.title}\n", "#FFFFFF")
+            if not text.plain:
+                text.append(" (nothing scheduled)", "#FFFFFF")
+            text.rstrip()
+            self.query_one("#cal-todo", Static).update(text)
+            return
         for prio, task in mock_data.TODOS:
             text.append(f" {prio}. ", STYLE_TIME if prio <= 2 else "#FFFFFF")
             text.append(f"{task}\n", "#FFFFFF")
@@ -124,6 +189,14 @@ class CalendarPane(Vertical):
         day = min(self.selected.day, pycal.monthrange(year, month)[1])
         self.selected = dt.date(year, month, day)
         self._render_all()
+
+    def action_refresh(self) -> None:
+        if not self.live:
+            self.app.notify("Demo calendar: set ical_url in config.toml.", title="Calendar")
+            return
+        self._state = "loading..."
+        self._render_all()
+        self.refresh_calendar()
 
     def action_today(self) -> None:
         self.today = dt.date.today()

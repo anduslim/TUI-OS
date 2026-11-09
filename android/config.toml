@@ -15,6 +15,17 @@ demo_mode = false
 # llm_url = "http://192.168.1.50:8080"
 # llm_model = ""        # empty = the model the server has loaded
 # llm_api_key = ""
+
+# Mail tab: Gmail over IMAP/SMTP. Use an app password from
+# https://myaccount.google.com/apppasswords (needs 2-Step Verification),
+# never your Google password. Empty = demo mailbox.
+# mail_address = "you@gmail.com"
+# mail_password = "abcd efgh ijkl mnop"
+# mail_name = "Your Name"
+#
+# Calendar tab: Google Calendar > Settings > (your calendar) >
+# "Secret address in iCal format". Read-only. Empty = demo calendar.
+# ical_url = "https://calendar.google.com/calendar/ical/.../basic.ics"
 #
 # To change settings without rebuilding, push an override file:
 #   adb push config.toml /sdcard/Android/data/org.olares.olares_workspace_tui/files/

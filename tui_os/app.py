@@ -157,9 +157,9 @@ class TuiOS(App[None]):
                         id="terminal-pane",
                     )
                 with TabPane("2 Mail", id="mail"):
-                    yield MailPane(id="mail-pane")
+                    yield MailPane(self.settings, id="mail-pane")
                 with TabPane("3 Calendar", id="calendar"):
-                    yield CalendarPane(id="calendar-pane")
+                    yield CalendarPane(self.settings, id="calendar-pane")
                 with TabPane("4 Browser", id="browser"):
                     if self.host is not None and self.host.webview_available:
                         yield WebBrowserPane(self.host, home=self.settings.browser_home, id="browser-pane")

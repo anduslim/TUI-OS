@@ -101,9 +101,34 @@ class Settings:
     #: APK: log every key / text-input event to logcat (tag "python") to
     #: debug keyboards and input methods.
     debug_input: bool = False
+    #: Mail tab (Gmail over IMAP/SMTP). Use a Google *app password*
+    #: (myaccount.google.com/apppasswords), not your account password. Both
+    #: empty = the Mail tab shows the built-in demo mailbox.
+    mail_address: str = ""
+    mail_password: str = ""
+    #: Shown in the From: header of mail you send; empty = just the address.
+    mail_name: str = ""
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
+    #: Port 465 = implicit TLS; any other port uses STARTTLS (e.g. 587).
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 465
+    #: Newest N messages of the INBOX loaded per refresh.
+    mail_fetch_count: int = 40
+    #: Seconds between automatic INBOX refreshes; 0 = only on "g".
+    mail_refresh_interval: float = 300.0
+    #: Calendar tab: secret iCal URL (Google Calendar > Settings > your
+    #: calendar > "Secret address in iCal format"). Read-only. Empty = demo.
+    ical_url: str = ""
+    #: Seconds between automatic calendar refreshes; 0 = only on "g".
+    calendar_refresh_interval: float = 900.0
     queries: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_QUERIES))
 
     # ------------------------------------------------------------------ derived
+    @property
+    def mail_configured(self) -> bool:
+        return bool(self.mail_address and self.mail_password)
+
     @property
     def resolved_ollama_url(self) -> str:
         return (self.ollama_url or f"http://{self.olares_host}:11434").rstrip("/")
@@ -209,6 +234,9 @@ _ENV_MAP = {
     "TUI_OS_K9S_HOST": "k9s_host",
     "TUI_OS_K9S_USER": "k9s_user",
     "TUI_OS_DEBUG_INPUT": "debug_input",
+    "TUI_OS_MAIL_ADDRESS": "mail_address",
+    "TUI_OS_MAIL_PASSWORD": "mail_password",
+    "TUI_OS_ICAL_URL": "ical_url",
 }
 
 

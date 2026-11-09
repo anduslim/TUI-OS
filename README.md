@@ -164,6 +164,34 @@ The default PromQL queries assume **node-exporter** (CPU temperature, network) a
 **NVIDIA DCGM exporter** (GPU temperature, VRAM). If your box exposes different metric
 names, override them under `[queries]`. The panel lists any metric that returns no data.
 
+## Mail and Calendar tabs (Gmail, Google Calendar)
+
+Both tabs show demo data until you configure them in `config.toml` (the on-device
+override is the best place, so the secrets never go into a build):
+
+```toml
+mail_address = "you@gmail.com"
+mail_password = "abcd efgh ijkl mnop"   # Google app password, not your password
+mail_name = "Your Name"                 # optional, for the From: header
+ical_url = "https://calendar.google.com/calendar/ical/.../private-.../basic.ics"
+```
+
+* **Mail** reads the newest `mail_fetch_count` (40) INBOX messages over IMAP and
+  sends over SMTP, Gmail by default (`imap_host`, `imap_port`, `smtp_host`,
+  `smtp_port` change that; port 465 is TLS, others use STARTTLS). Create the
+  password at <https://myaccount.google.com/apppasswords>; it needs 2-Step
+  Verification. Keys: `g` fetch, `r` reply, `m` new mail (Ctrl+S sends, Esc
+  cancels), `f` flag, `N` toggle read, `d` mark and `$` apply. On Gmail `$`
+  archives the marked messages out of the INBOX, it does not trash them.
+  Opening a message marks it read on the server. Refreshes every
+  `mail_refresh_interval` seconds (300; 0 = only on `g`).
+* **Calendar** downloads the secret iCal address read-only (Google Calendar >
+  Settings > your calendar > *Secret address in iCal format*). Recurring events,
+  exceptions, moved instances and all-day events are shown; the right-hand box
+  lists the next 7 days. `g` reloads; it refreshes every
+  `calendar_refresh_interval` seconds (900). Anyone with the URL can read the
+  calendar, so treat it like a password.
+
 ## Browser tab (WebView) and Tailscale
 
 In the APK, the Browser tab is a real Android **WebView** placed exactly over the
@@ -388,8 +416,8 @@ skips it and starts the app.
 
 ## Roadmap
 
-* IMAP/SMTP provider for Mail and a CalDAV provider (e.g. Radicale on Olares) for
-  Calendar. Both tabs already read from `mock_data`-shaped objects.
+* Pull the mail password and iCal URL from a password vault on the Olares One
+  instead of `config.toml`.
 * A real PTY shell tab next to the LLM terminal.
 * An in-app settings screen for the host, model and k9s target (today: `android/config.toml` before building).
 * Keyboard-driven link hints in the WebView (like Vimium) for mouse-free navigation.
