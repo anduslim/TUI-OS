@@ -41,6 +41,7 @@ from .version import app_version
 from .widgets.browser import BrowserPane
 from .widgets.calendar import CalendarPane
 from .widgets.k9s import K9sPane, SessionFactory
+from .widgets.agent import AgentPane
 from .widgets.shell import ShellPane
 from .widgets.webview import WebBrowserPane
 from .host.services import HostServices, WebViewEvent
@@ -174,13 +175,18 @@ class TuiOS(App[None]):
                         yield BrowserPane(home=self.settings.browser_home, id="browser-pane")
                 with TabPane("5 K9s (Cluster)", id="k9s"):
                     yield K9sPane(self.settings, session_factory=self._k9s_factory, id="k9s-pane")
-                with TabPane("6 LLM Terminal", id="terminal"):
-                    yield TerminalPane(
-                        self.ollama,
-                        flush_interval=self.settings.stream_flush_interval,
-                        system_prompt=self.settings.ollama_system_prompt,
-                        id="terminal-pane",
-                    )
+                if self.settings.agent_command.strip():
+                    with TabPane("6 Agent", id="terminal"):
+                        yield AgentPane(self.settings, session_factory=self._k9s_factory,
+                                        id="terminal-pane")
+                else:
+                    with TabPane("6 LLM Terminal", id="terminal"):
+                        yield TerminalPane(
+                            self.ollama,
+                            flush_interval=self.settings.stream_flush_interval,
+                            system_prompt=self.settings.ollama_system_prompt,
+                            id="terminal-pane",
+                        )
         yield Footer(compact=True)
 
     def on_mount(self) -> None:
@@ -287,7 +293,7 @@ class TuiOS(App[None]):
 
     def _focus_target(self, tab: str):
         """Panes with changing internals (shell, browser, k9s) say what to focus."""
-        if tab in self._FOCUS:
+        if tab in self._FOCUS and not isinstance(self.query_one(f"#{tab}-pane"), AgentPane):
             return self.query_one(self._FOCUS[tab])
         return self.query_one(f"#{tab}-pane").focus_target
 

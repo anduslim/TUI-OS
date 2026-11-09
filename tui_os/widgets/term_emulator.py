@@ -11,10 +11,16 @@
   the data didn't change.
 * Keys go to the remote side as xterm sequences, except a few app-level
   escape hatches (see :attr:`TerminalEmulator.RESERVED`).
+* Coding agents (Claude Code, opencode) work too: device-attribute and
+  cursor-position queries are answered, pastes are bracketed when the
+  program asks for it, and ``CSI >``/``<``/``=`` sequences (kitty keyboard,
+  modifyOtherKeys, XTVERSION) are dropped instead of being misread by pyte
+  as colour changes (``CSI > 4;1 m`` would turn on bold + underline).
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 import pyte
@@ -39,6 +45,28 @@ _FIXED = {
     "f5": "\x1b[15~", "f6": "\x1b[17~", "f7": "\x1b[18~", "f8": "\x1b[19~",
     "f9": "\x1b[20~", "f10": "\x1b[21~", "f11": "\x1b[23~", "f12": "\x1b[24~",
 }
+#: Bracketed paste (``CSI ? 2004 h``), as pyte stores it.
+BRACKETED_PASTE = 2004 << 5
+
+#: CSI sequences with a ``<``, ``=`` or ``>`` parameter prefix. pyte has no
+#: notion of them and would dispatch e.g. ``CSI > 4;1 m`` as plain SGR.
+_PREFIXED_CSI = re.compile(r"\x1b\[[<=>][0-9;:]*[ -/]*[@-~]")
+#: An escape sequence cut off at the end of a chunk; held for the next one.
+_PARTIAL_ESC = re.compile(r"\x1b(\[[<=>?]?[0-9;:]*[ -/]*)?$")
+
+
+class _Screen(pyte.Screen):
+    """A pyte screen whose replies to terminal queries reach the program."""
+
+    def __init__(self, columns: int, lines: int) -> None:
+        super().__init__(columns, lines)
+        self.reply: Callable[[str], None] | None = None
+
+    def write_process_input(self, data: str) -> None:
+        if self.reply is not None:
+            self.reply(data)
+
+
 _CURSOR = {"up": "A", "down": "B", "right": "C", "left": "D", "home": "H", "end": "F"}
 _MOD_CODE = {"shift": 2, "alt": 3, "shift+alt": 4, "ctrl": 5, "ctrl+shift": 6, "ctrl+alt": 7}
 
@@ -99,8 +127,10 @@ class TerminalEmulator(Widget, can_focus=True):
     def __init__(self, on_input: Callable[[str], None] | None = None, **kw) -> None:
         super().__init__(**kw)
         self.on_input = on_input
-        self._screen = pyte.Screen(80, 24)
+        self._screen = _Screen(80, 24)
+        self._screen.reply = self._reply
         self._stream = pyte.Stream(self._screen)
+        self._pending = ""
         self._rows: list[tuple] = []
         self._styles: dict[tuple, Style] = {}
 
@@ -112,13 +142,27 @@ class TerminalEmulator(Widget, can_focus=True):
     def text_lines(self) -> list[str]:
         return list(self._screen.display)
 
+    def _reply(self, data: str) -> None:
+        if self.on_input is not None:
+            self.on_input(data)
+
     def reset(self) -> None:
+        self._pending = ""
         self._screen.reset()
         self._rows = []
         self.refresh()
 
     def feed(self, data: str) -> None:
         """Apply remote output; repaint only rows that really changed."""
+        data = self._pending + data
+        partial = _PARTIAL_ESC.search(data)
+        if partial is not None:
+            data, self._pending = data[: partial.start()], data[partial.start():]
+        else:
+            self._pending = ""
+        data = _PREFIXED_CSI.sub("", data)
+        if not data:
+            return
         cursor_before = self._screen.cursor.y
         self._stream.feed(data)
         dirty = set(self._screen.dirty) | {cursor_before, self._screen.cursor.y}
@@ -211,5 +255,9 @@ class TerminalEmulator(Widget, can_focus=True):
 
     def on_paste(self, event: events.Paste) -> None:
         if self.on_input is not None and event.text:
-            self.on_input(event.text)
+            text = event.text
+            if BRACKETED_PASTE in self._screen.mode:
+                # Multi-line pastes land in a prompt instead of being run line by line.
+                text = "\x1b[200~" + text.replace("\x1b", "") + "\x1b[201~"
+            self.on_input(text)
         event.stop()

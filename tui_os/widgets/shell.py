@@ -18,12 +18,12 @@ from ..services.ssh import SshTarget
 from .ssh_pane import SshPane
 
 
-def shell_target(settings: Settings) -> SshTarget:
+def shell_target(settings: Settings, command: str | None = None) -> SshTarget:
     return SshTarget(
         host=settings.resolved_shell_host,
         username=settings.shell_user,
         port=settings.shell_port,
-        command=settings.shell_command,
+        command=settings.shell_command if command is None else command,
         key_path=settings.resolved_ssh_key_path,
         known_hosts_path=settings.data_dir / "known_hosts",
         mode="shell",
