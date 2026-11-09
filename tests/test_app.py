@@ -162,3 +162,30 @@ async def test_mail_subject_not_parsed_as_markup(make_app):
         table = app.query_one("#mail-index")
         subjects = [str(table.get_row_at(i)[4]) for i in range(table.row_count)]
         assert any(s.startswith("[tui-os]") for s in subjects)
+
+
+def test_version_comes_from_the_ci_build_file(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    from tui_os.version import app_version
+
+    monkeypatch.delitem(sys.modules, "tui_os._build_version", raising=False)
+    assert app_version() == "dev"  # desktop checkout: no build file
+    fake = types.ModuleType("tui_os._build_version")
+    fake.VERSION = "1.1.6"
+    monkeypatch.setitem(sys.modules, "tui_os._build_version", fake)
+    assert app_version() == "1.1.6"
+
+
+async def test_title_bar_shows_the_version(make_app, monkeypatch):
+    import sys
+    import types
+
+    fake = types.ModuleType("tui_os._build_version")
+    fake.VERSION = "9.8.7"
+    monkeypatch.setitem(sys.modules, "tui_os._build_version", fake)
+    app = make_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        await pilot.pause()
+        assert "TUI-OS 9.8.7" in str(app.query_one("#titlebar").render())

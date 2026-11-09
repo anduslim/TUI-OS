@@ -37,6 +37,7 @@ from .services.telemetry import (
     TelemetrySource,
 )
 from .theme import EINK_THEME
+from .version import app_version
 from .widgets.browser import BrowserPane
 from .widgets.calendar import CalendarPane
 from .widgets.k9s import K9sPane, SessionFactory
@@ -83,7 +84,7 @@ class TitleBar(Static):
             return
         self._last = stamp
         text = Text()
-        text.append(" TUI-OS ", "bold #000000 on #00FF00")
+        text.append(f" TUI-OS {app_version()} ", "bold #000000 on #00FF00")
         text.append(f"  olares://{self.host}", "bold #FFFFFF")
         right = f"{stamp} "
         text.append(" " * max(1, self.size.width - text.cell_len - len(right)))
