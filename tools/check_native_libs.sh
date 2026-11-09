@@ -18,7 +18,7 @@ REQUIRED='site-packages/(cryptography/|_cffi_backend)'
 
 APK="${1:?usage: check_native_libs.sh APP.apk}"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+trap 'chmod -R u+rwX "$work" 2>/dev/null; rm -rf "$work"' EXIT
 
 READELF="$(command -v readelf || command -v llvm-readelf || true)"
 if [[ -z "$READELF" ]]; then
@@ -30,6 +30,9 @@ unzip -q -o "$APK" 'lib/*/libpybundle.so' -d "$work"
 bundle="$(ls "$work"/lib/*/libpybundle.so | head -1)"
 mkdir "$work/py"
 tar -xf "$bundle" -C "$work/py"
+# The bundle stores directories without the owner's x bit; as a non-root
+# user (CI) find can't enter them until they are made traversable.
+chmod -R u+rwX "$work/py"
 
 status=0
 checked=0
