@@ -28,6 +28,8 @@ from textual.widgets import Footer, Static, TabbedContent, TabPane
 
 from .config import Settings
 from .services.ollama import OllamaClient
+from .services.llm import make_llm_client
+from .services.openai_chat import OpenAIChatClient
 from .services.telemetry import (
     DemoTelemetry,
     PrometheusTelemetry,
@@ -113,7 +115,7 @@ class TuiOS(App[None]):
         settings: Settings | None = None,
         *,
         telemetry_source: TelemetrySource | None = None,
-        ollama_client: OllamaClient | None = None,
+        ollama_client: "OllamaClient | OpenAIChatClient | None" = None,
         driver_class: type[Driver] | None = None,
         k9s_session_factory: SessionFactory | None = None,
         host: HostServices | None = None,
@@ -129,9 +131,7 @@ class TuiOS(App[None]):
         # completes instantly. One state change -> one repaint.
         self.animation_level = "none"
         self.telemetry_source: TelemetrySource = telemetry_source or self._make_telemetry()
-        self.ollama = ollama_client or OllamaClient(
-            self.settings.resolved_ollama_url, self.settings.ollama_model
-        )
+        self.ollama = ollama_client or make_llm_client(self.settings)
         # Fixed full-scale reference for network bars (adapts upward to peaks).
         self._net_peak = 12.5e6  # 100 Mbit/s
 

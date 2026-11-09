@@ -49,6 +49,23 @@ FONT_REGULAR = FONT_DIR / "JetBrainsMonoNL-Regular.ttf"
 FONT_BOLD = FONT_DIR / "JetBrainsMonoNL-Bold.ttf"
 BUNDLED_CONFIG = ROOT / "android" / "config.toml"
 
+OVERRIDE_NAME = "config.toml"
+OVERRIDE_HEADER = """\
+# Rename to config.toml (same folder) to override the app's settings, e.g.
+#   adb pull /sdcard/Android/data/org.olares.olares_workspace_tui/files/config.toml.example config.toml
+#   (edit)  adb push config.toml /sdcard/Android/data/org.olares.olares_workspace_tui/files/
+# then force-stop and reopen the app. Keys here win over the bundled ones;
+# leave out what you don't change. Remove the file to go back to the defaults.
+#
+# Local LLM on llama.cpp (OpenAI-compatible API):
+#   llm_api = "openai"
+#   llm_url = "http://192.168.1.50:8080"   # or the app's https URL on Olares
+#   llm_model = ""                         # empty = whatever the server loaded
+#   llm_api_key = ""
+#
+# ---- bundled defaults ----
+"""
+
 REFRESH_HZ = 20
 SWIPE_ROWS = 3
 TEXT_FALLBACK_DELAY = 0.06
@@ -244,12 +261,28 @@ class OlaresWorkspaceApp(App):
             Clock.schedule_once(lambda _dt: self.stop(), 0)
 
     def _prepare_config(self) -> None:
-        """First launch: copy the bundled config.toml to private storage."""
+        """First launch: copy the bundled config.toml to private storage.
+
+        Then layer ``config.toml`` from the external files dir on top, if
+        present, so settings can be changed on a release build with
+        ``adb push config.toml /sdcard/Android/data/<package>/files/``.
+        An example copy is kept there to ``adb pull`` and edit.
+        """
         target = Path(self.user_data_dir) / "config.toml"
         if not target.exists() and BUNDLED_CONFIG.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(BUNDLED_CONFIG, target)
         os.environ["TUI_OS_CONFIG"] = str(target)
+
+        external = crash_log_path(self).parent
+        os.environ["TUI_OS_CONFIG_OVERRIDE"] = str(external / OVERRIDE_NAME)
+        example = external / (OVERRIDE_NAME + ".example")
+        try:
+            external.mkdir(parents=True, exist_ok=True)
+            if BUNDLED_CONFIG.exists():
+                example.write_text(OVERRIDE_HEADER + BUNDLED_CONFIG.read_text())
+        except OSError:
+            pass  # the override is optional
 
     # ------------------------------------------------------------ keyboard
     def _lock_keyboard(self) -> None:
