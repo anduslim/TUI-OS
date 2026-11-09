@@ -238,3 +238,42 @@ def test_fallback_without_any_text_input_events():
 def test_key_then_text_on_desktop_types_once():
     assert _type([("key", "a"), ("text", "a"), ("tick", None),
                   ("key", "é"), ("text", "é"), ("tick", None)]) == "aé"
+
+
+def test_paste_keys_are_recognised():
+    from tui_os.host.keymap import PASTE_KEYS
+
+    assert translate_keydown(ord("v"), "v", ["ctrl"]).key in PASTE_KEYS
+    assert NamedKey("shift+insert").key in PASTE_KEYS
+
+
+def test_bridge_paste_fills_the_vault_password_field():
+    """A pasted master password lands whole in the masked unlock field."""
+    from textual.widgets import Input
+
+    from tui_os.app import TuiOS
+    from tui_os.services.vault import VaultClient, VaultConfig
+
+    vault = VaultClient(VaultConfig(url="https://vault.invalid", email="a@b"))
+    b = TerminalBridge(
+        lambda dc: TuiOS(Settings(demo_mode=True, telemetry_interval=1.0), driver_class=dc,
+                         vault_client=vault),
+        cols=147,
+        rows=46,
+    )
+    b.start()
+    try:
+        assert b.ready.wait(10), b.error
+        assert _wait_for(lambda: "Unlock vault" in screen(b))
+        secret = "correct horse battery staple, with ünicode & a $ign"
+        assert b.send_paste(secret + "\r\n")
+        field = lambda: b.app.screen.query_one("#unlock-password", Input)  # noqa: E731
+        assert _wait_for(lambda: field().value == secret)
+        assert secret not in screen(b)  # still masked
+        assert not b.send_paste("")
+        b.send_key("escape", "\x1b")
+        assert _wait_for(lambda: "Unlock vault" not in screen(b))
+    finally:
+        b.stop()
+        assert b.finished.wait(5)
+    assert b.error is None, b.error

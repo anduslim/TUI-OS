@@ -91,6 +91,10 @@ EmbeddedDriver ──▶ pyte.Screen ──▶ TerminalBridge.take_dirty_rows()
 * **E-ink.** Only rows that changed are repainted, and an idle TUI draws nothing. A
   vertical swipe sends PgUp/PgDn, a tap is a click, and returning from sleep triggers one
   full clean repaint.
+* **Paste.** Ctrl+V (or Shift+Insert) on the keyboard cover, or a long press (0.6 s)
+  on a field, pastes the Android clipboard into the focused field: the vault unlock
+  prompt, the LLM prompt, the mail editor or the SSH terminal. It arrives as one
+  bracketed paste, so pasted text never triggers key bindings.
 
 ## Configuration
 
@@ -215,7 +219,9 @@ and has no API the TUI can use, so it can't fill this role.)
    ```
 
 At launch an **Unlock vault** prompt appears. Enter the master password, then a
-two-step login code if your account asks for one. Esc skips the vault and uses
+two-step login code if your account asks for one. To avoid typing a long master
+password, copy it from a password manager app on the tablet (for example LarePass's
+Vault) and paste it with Ctrl+V or a long press on the field. Esc skips the vault and uses
 whatever `config.toml` holds, so plain values there still work as a fallback. To
 skip the code prompt, set `vault_client_id` / `vault_client_secret` from *Account
 settings > Security > Keys > View API key*; the master password is still needed to
