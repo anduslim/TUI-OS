@@ -52,10 +52,23 @@ def test_paste_is_bracketed_only_when_asked():
     assert sent == ["a\nb", "\x1b[200~c\nd[201~\x1b[201~"]
 
 
+def test_agent_command_runs_in_a_login_shell():
+    """Over SSH the command gets a bare shell (no .bashrc): kubectl/tmux exit 127."""
+    import shlex
+
+    from tui_os.widgets.agent import login_shell
+
+    cmd = "tmux new -A -s agent kubectl exec -it -n ns deploy/x -- bash -ilc 'claude --x'"
+    wrapped = login_shell(cmd)
+    assert wrapped.startswith('exec "${SHELL:-/bin/bash}" -ilc ')
+    assert shlex.split(wrapped)[-1] == cmd
+    assert login_shell("  ") == ""
+
+
 async def test_agent_tab_replaces_llm_terminal(ssh_server, settings):  # noqa: F811
     from tui_os.app import TuiOS
     from tui_os.services.telemetry import DemoTelemetry
-    from tui_os.widgets.agent import AgentPane
+    from tui_os.widgets.agent import AgentPane, login_shell
 
     fake, target, _ = ssh_server
     s = replace(settings, agent_command="tmux new -A -s agent claude", start_tab="shell",
@@ -65,7 +78,8 @@ async def test_agent_tab_replaces_llm_terminal(ssh_server, settings):  # noqa: F
                     replace(target, mode=t.mode, command=t.command), o, e))
     async with app.run_test(size=(147, 46)) as pilot:
         pane = app.query_one(AgentPane)
-        assert remote_command(pane.target) == "tmux new -A -s agent claude"
+        wrapped = login_shell("tmux new -A -s agent claude")
+        assert remote_command(pane.target) == wrapped
         await pilot.press("ctrl+6")
         term = pane.query_one(TerminalEmulator)
         for _ in range(100):
@@ -73,7 +87,7 @@ async def test_agent_tab_replaces_llm_terminal(ssh_server, settings):  # noqa: F
             if pane.state == "connected" and app.focused is term:
                 break
         assert pane.state == "connected", pane.error
-        assert fake.command == "tmux new -A -s agent claude"
+        assert fake.command == wrapped
         await pilot.press("escape", "shift+tab", "ctrl+c")
         await pilot.pause(0.3)
         assert "".join(fake.keys).endswith("\x1b\x1b[Z\x03")

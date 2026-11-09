@@ -298,7 +298,18 @@ LLM Terminal (same host, user and key as the Shell tab):
 agent_command = "tmux new -A -s agent claude"     # or: ... -s agent opencode
 ```
 
+The command runs through your login shell (`$SHELL -ilc`), so `kubectl`, tmux and
+anything else your `.bashrc`/`.profile` sets up are found just as in the Shell tab.
 tmux keeps the agent working while the tablet sleeps; opening the tab reattaches.
+
+Agents installed as Olares apps live in the app's container, not on the host. Reach
+them with `kubectl exec`, for example:
+
+```toml
+agent_command = "tmux new -A -s agent kubectl exec -it -n claudecode-<user> deploy/claudecode -c claudecode -- env TERM=xterm-256color COLORTERM=truecolor bash -ilc claude"
+```
+
+(`kubectl exec` doesn't pass `TERM` on; without it Claude Code exits silently.)
 Every key goes to the agent (Esc interrupts, Shift+Tab switches mode, Ctrl+C), except
 Ctrl+1–6 and Ctrl+Q. For a new line in the prompt, end the line with `\` and press Enter.
 

@@ -98,6 +98,11 @@ class SshPane(Vertical):
     def ended_text(self) -> str:
         return "session ended"
 
+    @property
+    def display_command(self) -> str:
+        """The command as the user wrote it, for the idle screen."""
+        return self.target.command
+
     # ---------------------------------------------------------------- view
     def compose(self) -> ComposeResult:
         yield Static("", classes="bar ssh-status")
@@ -165,9 +170,9 @@ class SshPane(Vertical):
         text.append("\n")
         text.append(" Enter ", "bold #FFFFFF on #0000FF")
         text.append(f"  connect: ssh {t.label}", "#FFFFFF")
-        if t.command.strip():
+        if self.display_command.strip():
             text.append(", then run ", "#FFFFFF")
-            text.append(t.command, "bold #00FF00")
+            text.append(self.display_command, "bold #00FF00")
         text.append("\n\n")
         text.append("Device key", "bold #00FF00")
         text.append(" (add to ~/.ssh/authorized_keys on the node):\n", "#FFFFFF")
@@ -243,7 +248,11 @@ class SshPane(Vertical):
             await session.start(cols, rows)
         except Exception as exc:  # noqa: BLE001 - shown in the panel
             self.session = None
-            self._set_state("error", f"{type(exc).__name__}: {exc}")
+            if isinstance(exc, TimeoutError):
+                message = f"no answer from {self.target.label} within 10 s (network asleep?). Enter retries"
+            else:
+                message = f"{type(exc).__name__}: {exc}"
+            self._set_state("error", message)
             return
         self.session = session
         self._set_state("connected")
