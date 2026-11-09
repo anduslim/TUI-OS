@@ -35,3 +35,8 @@ demo_mode = false
 #
 # To change settings without rebuilding, push an override file:
 #   adb push config.toml /sdcard/Android/data/org.olares.olares_workspace_tui/files/
+
+# Tab 1 is an SSH shell on the node; tab 6 is the LLM terminal.
+# start_tab = "shell"
+# shell_user = "olares"
+# shell_command = "tmux new -A -s main"

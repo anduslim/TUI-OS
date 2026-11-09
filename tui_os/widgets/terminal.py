@@ -1,4 +1,4 @@
-"""Terminal tab: a streaming prompt environment for the on-box Ollama server.
+"""LLM Terminal tab: a streaming prompt environment for the on-box Ollama server.
 
 Architecture
 ------------
