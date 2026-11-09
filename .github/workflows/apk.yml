@@ -37,6 +37,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     outputs:
+      # apk_name is not used across jobs: it contains the key alias, which is a
+      # secret, so GitHub drops it from job outputs ("may contain secret").
       apk_name: ${{ steps.collect.outputs.apk_name }}
       signing: ${{ steps.signing.outputs.mode }}
       cert_sha256: ${{ steps.verify.outputs.cert_sha256 }}
@@ -195,7 +197,7 @@ jobs:
           body: |
             **Olares Workspace TUI v${{ needs.apk.outputs.version }}**: native Android APK for the Onyx Boox Tab Ultra C (arm64-v8a, Android 11+).
 
-            **Install:** download `${{ needs.apk.outputs.apk_name }}`, then `adb install -r <apk>`, or open it on the tablet (allow your file manager to *install unknown apps*).
+            **Install:** download `olares-workspace-tui-${{ needs.apk.outputs.version }}-arm64-v8a.apk`, then `adb install -r <apk>`, or open it on the tablet (allow your file manager to *install unknown apps*).
             **Signing:** release key, verified with `apksigner` (v1+v2, not debuggable).
             Certificate SHA-256: `${{ needs.apk.outputs.cert_sha256 }}`. Every release is signed with this same key, so updates install over the previous version.
             **Checksum:** see the `.sha256` file.

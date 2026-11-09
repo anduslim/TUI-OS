@@ -21,8 +21,15 @@ source.include_exts = py,png,jpg,kv,atlas,ini,css,tcss,toml,ttf,txt,yaml
 # TUI-OS: keep tests, design scratch and build output out of the APK
 source.exclude_dirs = tests, tools, bin, .buildozer, .git, .github, design, __pycache__
 
+# TUI-OS: pyproject.toml MUST stay out of the APK. When python-for-android
+# finds one in the app dir it assumes the app is pip-installed into
+# site-packages and packs ONLY main.py into private.tar, so `import tui_os`
+# fails on the device (v1.1.0 and v1.1.1 shipped that way).
+# tools/verify_apk.sh now fails the build if tui_os is missing.
+source.exclude_patterns = pyproject.toml
+
 # (str) Application version
-version = 1.1.1
+version = 1.1.2
 
 # (list) Application requirements
 # Crucial: include hostpython3, kivy, and external async libraries your code needs
