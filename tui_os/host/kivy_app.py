@@ -57,6 +57,12 @@ OVERRIDE_HEADER = """\
 #   (edit)  adb push config.toml /sdcard/Android/data/org.olares.olares_workspace_tui/files/
 # then force-stop and reopen the app. Keys here win over the bundled ones;
 # leave out what you don't change. Remove the file to go back to the defaults.
+# Put plain settings ABOVE any [queries] line: TOML puts every key after a
+# [table] header inside that table.
+#
+# Mail / Calendar secrets from Vaultwarden (see README):
+#   vault_url = "https://vaultwarden.you.olares.com"
+#   vault_email = "you@example.com"
 #
 # Local LLM on llama.cpp (OpenAI-compatible API):
 #   llm_api = "openai"

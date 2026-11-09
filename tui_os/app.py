@@ -26,7 +26,12 @@ from textual.driver import Driver
 from textual.message import Message
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
-from .config import Settings
+from .config import LOAD_WARNINGS, Settings
+
+
+def config_warnings() -> list[str]:
+    return list(LOAD_WARNINGS)
+
 from .services.ollama import OllamaClient
 from .services.llm import make_llm_client
 from .services.openai_chat import OpenAIChatClient
@@ -189,6 +194,8 @@ class TuiOS(App[None]):
         self.telemetry_loop()
         self._focus_tab(self._start_tab)
         self._activate(self._start_tab)
+        for warning in config_warnings():
+            self.notify(warning, title="config.toml", severity="warning", timeout=15)
         self._maybe_unlock_vault()
 
     # ------------------------------------------------------------------- vault
