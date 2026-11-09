@@ -26,14 +26,22 @@ fail() { echo "::error::$*" >&2; exit 1; }
 
 "$BT/zipalign" -c -p 4 "$APK" || fail "APK is not zip-aligned"
 
-out="$("$BT/apksigner" verify --verbose --print-certs "$APK")" || { echo "$out"; fail "apksigner verify failed"; }
-echo "$out" | grep -E "Verified using|Signer #1 certificate (DN|SHA-256)"
+out="$("$BT/apksigner" verify --verbose --print-certs "$APK" 2>&1)" || { echo "$out"; fail "apksigner verify failed"; }
+echo "$out"
 grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" <<<"$out" \
   || fail "missing APK Signature Scheme v2 (Android 11 requires it)"
 
-dn="$(sed -n 's/^Signer #1 certificate DN: //p' <<<"$out")"
-cert="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$out" | tr -d ': ' | tr 'A-F' 'a-f')"
+# The line prefix varies across build-tools versions ("Signer #1 ...",
+# "Signer (minSdkVersion=...) ..."), so match the stable suffixes.
+dn="$(grep -m1 -oE 'certificate DN: .*' <<<"$out" | sed 's/^certificate DN: //' || true)"
+cert="$(grep -m1 -oiE 'certificate SHA-256 digest: [0-9a-f:]+' <<<"$out" | sed 's/^.*: //' | tr -d ':' | tr 'A-F' 'a-f' || true)"
+if [[ -z "$cert" ]]; then
+  # Fallback: ask keytool (JDK) for the certificate in the APK.
+  cert="$(keytool -printcert -jarfile "$APK" 2>/dev/null | grep -m1 -oE 'SHA256: [0-9A-F:]+' | sed 's/^SHA256: //' | tr -d ':' | tr 'A-F' 'a-f' || true)"
+  dn="${dn:-$(keytool -printcert -jarfile "$APK" 2>/dev/null | sed -n 's/^Owner: //p' | head -1 || true)}"
+fi
 [[ -n "$cert" ]] || fail "could not read the signing certificate"
+echo "signer: $dn"
 if [[ "$ALLOW_DEBUG" -eq 0 && "$dn" == *"Android Debug"* ]]; then
   fail "signed with the throwaway Android Debug certificate"
 fi
