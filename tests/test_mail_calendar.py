@@ -254,3 +254,29 @@ async def test_google_embed_link_gets_a_clear_error():
     cal = ICalCalendar("https://calendar.google.com/calendar/embed?src=x%40gmail.com&ctz=Asia/Singapore")
     with pytest.raises(CalendarError, match="Secret address in iCal format"):
         await cal.fetch()
+
+
+def test_broken_override_file_is_skipped_not_fatal(tmp_path, monkeypatch):
+    from tui_os import config
+
+    base = tmp_path / "base.toml"
+    base.write_text('olares_host = "10.0.0.1"\n')
+    bad = tmp_path / "config.toml"
+    bad.write_text('ical_url = "https://x/a.ics" style="border: 0"\n')  # pasted iframe junk
+    monkeypatch.setenv("TUI_OS_CONFIG_OVERRIDE", str(bad))
+    s = Settings.load(base)
+    assert s.olares_host == "10.0.0.1" and s.ical_url == ""
+    assert len(config.LOAD_WARNINGS) == 1
+    assert "invalid TOML" in config.LOAD_WARNINGS[0] and "line 1" in config.LOAD_WARNINGS[0]
+
+
+async def test_config_warnings_show_as_toasts(make_app, monkeypatch):
+    from tui_os import config
+
+    monkeypatch.setattr(config, "LOAD_WARNINGS", ["config.toml: bad line"])
+    import tui_os.app as app_mod
+    monkeypatch.setattr(app_mod, "LOAD_WARNINGS", config.LOAD_WARNINGS)
+    app = make_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        await pilot.pause()
+        assert any("bad line" in n.message for n in app._notifications)

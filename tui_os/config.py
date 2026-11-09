@@ -215,7 +215,12 @@ class Settings:
         settings = settings._merge(_read_toml(path or default_config_path()))
         override = os.environ.get("TUI_OS_CONFIG_OVERRIDE")
         if override:
-            settings = settings._merge(_read_toml(Path(override).expanduser()))
+            # The on-device override is hand-edited: a typo there must not
+            # stop the app. Skip the file and say why at start instead.
+            try:
+                settings = settings._merge(_read_toml(Path(override).expanduser()))
+            except ValueError as exc:
+                LOAD_WARNINGS.append(f"{exc}. Ignored that file; using the bundled settings.")
         settings = settings._merge(_read_env())
         settings = settings._merge({k: v for k, v in overrides.items() if v is not None})
         return settings
