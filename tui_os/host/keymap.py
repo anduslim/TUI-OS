@@ -84,3 +84,43 @@ def translate_keydown(
     if shift:
         char = char.upper() if char.isalpha() else _US_SHIFT.get(char, char)
     return CharKey(char)
+
+
+class CharFallback:
+    """Decides when a printable key press needs the US-layout fallback.
+
+    SDL 2.28+ on Android turns every typed character into THREE events: a
+    simulated key-down (from ``commitText``), a text-input event, and the
+    real key-down. Waiting for text input after each key-down therefore
+    typed most characters twice: the real key-down, arriving after the text
+    event, found no text event following it and fired the fallback.
+
+    Once a text-input event has been seen, the platform delivers text that
+    way, so key-downs for printable characters are ignored from then on.
+    Before that (no IME at all), a key-down with no text event within the
+    host's delay is typed from the key itself.
+    """
+
+    def __init__(self) -> None:
+        self.text_input_seen = False
+        self.pending: CharKey | None = None
+
+    def key_down(self, action: CharKey) -> bool:
+        """Record a key press; True if the host should schedule :meth:`flush`."""
+        if self.text_input_seen:
+            self.pending = None
+            return False
+        self.pending = action
+        return True
+
+    def text_input(self) -> None:
+        self.text_input_seen = True
+        self.pending = None
+
+    def cancel(self) -> None:
+        self.pending = None
+
+    def flush(self) -> str | None:
+        """The character to type if no text event arrived in time."""
+        action, self.pending = self.pending, None
+        return action.character if action else None

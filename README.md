@@ -155,6 +155,8 @@ adb push config.toml $D/
 adb shell am force-stop org.olares.olares_workspace_tui   # then reopen the app
 ```
 
+Add `debug_input = true` to log every key and text-input event to logcat
+(`adb logcat -s python`), which helps when a keyboard or input method misbehaves.
 Delete `$D/config.toml` to go back to the bundled settings. A file with a TOML error
 shows on the crash screen with its path.
 
