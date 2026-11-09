@@ -98,6 +98,9 @@ class Settings:
     k9s_autoconnect: bool = True
     #: Private key path; empty = <data dir>/id_ed25519 (generated on first use).
     ssh_key_path: str = ""
+    #: APK: log every key / text-input event to logcat (tag "python") to
+    #: debug keyboards and input methods.
+    debug_input: bool = False
     queries: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_QUERIES))
 
     # ------------------------------------------------------------------ derived
@@ -205,6 +208,7 @@ _ENV_MAP = {
     "TUI_OS_BROWSER_HOME": "browser_home",
     "TUI_OS_K9S_HOST": "k9s_host",
     "TUI_OS_K9S_USER": "k9s_user",
+    "TUI_OS_DEBUG_INPUT": "debug_input",
 }
 
 

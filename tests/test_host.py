@@ -199,3 +199,42 @@ def test_bridge_reports_errors_textual_swallows():
     assert b.finished.wait(10) and exited == [b]
     assert b.error is not None
     assert "ValueError: boom in compose" in b.error
+
+
+def _type(events, delay_passes: bool = True) -> str:
+    """Replay host input events through CharFallback; return what gets typed."""
+    from tui_os.host.keymap import CharFallback, CharKey
+
+    fb, typed = CharFallback(), []
+    for kind, value in events:
+        if kind == "key":
+            fb.cancel()
+            fb.key_down(CharKey(value))
+        elif kind == "text":
+            fb.cancel()
+            fb.text_input()
+            typed.append(value)
+        elif kind == "tick" and delay_passes:  # fallback delay elapsed
+            ch = fb.flush()
+            if ch:
+                typed.append(ch)
+    return "".join(typed)
+
+
+def test_sdl_android_key_sequence_types_each_character_once():
+    """SDL 2.30 on Android: simulated key-down, text input, then the real
+    key-down for every character. This used to type 'aabbcc'."""
+    seq = []
+    for ch in "abc":
+        seq += [("key", ch), ("text", ch), ("key", ch), ("tick", None)]
+    assert _type(seq) == "abc"
+
+
+def test_fallback_without_any_text_input_events():
+    """No IME (text events never arrive): the key itself is typed."""
+    assert _type([("key", "a"), ("tick", None), ("key", "b"), ("tick", None)]) == "ab"
+
+
+def test_key_then_text_on_desktop_types_once():
+    assert _type([("key", "a"), ("text", "a"), ("tick", None),
+                  ("key", "é"), ("text", "é"), ("tick", None)]) == "aé"
