@@ -32,8 +32,10 @@ def ollama_transport(tokens: list[str], *, models=("llama3.1:8b",), status: int 
 
 @pytest.fixture
 def settings() -> Settings:
+    # Most tests drive the LLM terminal; tests/test_shell.py covers the SSH shell.
     return Settings(demo_mode=True, telemetry_interval=1.0, stream_flush_interval=0.05,
-                    browser_home="about:home")
+                    browser_home="about:home", start_tab="terminal",
+                    shell_autoconnect=False)
 
 
 @pytest.fixture

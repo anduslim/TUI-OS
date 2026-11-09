@@ -1,4 +1,4 @@
-"""SSH terminal sessions to the Olares One (used by the K9s tab).
+"""SSH terminal sessions to the Olares One (the Shell and K9s tabs).
 
 Built on ``asyncssh`` (pure Python on top of ``cryptography``, which
 python-for-android compiles for arm64), so the same code runs on a desktop
@@ -10,7 +10,7 @@ Security model, sized for a Tailscale tailnet:
   server key in ``known_hosts`` under the app's data dir. Later connections
   must match it, or they fail with :class:`HostKeyChanged`.
 * **Client key:** an Ed25519 key is generated on the device on first use.
-  Its public half is shown in the K9s tab for ``~/.ssh/authorized_keys``.
+  Its public half is shown in the Shell and K9s tabs for ``~/.ssh/authorized_keys``.
   Tailscale SSH (tailnet identity, no keys) also works, because asyncssh
   falls back to ``none`` auth when the server accepts it.
 """
@@ -37,7 +37,7 @@ class HostKeyChanged(RuntimeError):
 
 def _asyncssh() -> Any:
     """Import asyncssh (and the native cryptography module) only when SSH is
-    actually used, so a device where it can't load only loses the K9s tab."""
+    actually used, so a device where it can't load only loses the SSH tabs."""
     import asyncssh
 
     return asyncssh
@@ -53,6 +53,9 @@ class SshTarget:
     refresh_rate: int = 5
     key_path: Path = Path("id_ed25519")
     known_hosts_path: Path = Path("known_hosts")
+    #: "k9s": upload the E-ink skin and run k9s. "shell": run ``command`` as
+    #: is, or the user's login shell when it is empty (e.g. "tmux new -A -s main").
+    mode: str = "k9s"
 
     @property
     def label(self) -> str:
@@ -99,8 +102,13 @@ def k9s_config(refresh_rate: int) -> str:
     )
 
 
-def remote_command(target: SshTarget) -> str:
-    """Run k9s with our skin from a dedicated config dir (user config untouched)."""
+def remote_command(target: SshTarget) -> str | None:
+    """The command for the PTY; None asks the server for a login shell.
+
+    k9s runs with our skin from a dedicated config dir (user config untouched).
+    """
+    if target.mode == "shell":
+        return target.command.strip() or None
     env = [f'K9S_CONFIG_DIR="$HOME/{REMOTE_CONFIG_DIR}"', "COLORTERM=truecolor"]
     if target.kubeconfig:
         env.append(f"KUBECONFIG={target.kubeconfig}")
@@ -112,7 +120,7 @@ def remote_command(target: SshTarget) -> str:
 
 
 class SshTerminalSession:
-    """One interactive PTY session running k9s on the target."""
+    """One interactive PTY session on the target (k9s, a shell, tmux...)."""
 
     def __init__(
         self,
@@ -165,7 +173,8 @@ class SshTerminalSession:
 
     async def start(self, cols: int, rows: int) -> None:
         self._conn = await self._connect()
-        await self._install_skin(self._conn)
+        if self.target.mode == "k9s":
+            await self._install_skin(self._conn)
         self._proc = await self._conn.create_process(
             remote_command(self.target),
             term_type="xterm-256color",

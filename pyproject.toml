@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tui-os"
 version = "0.1.0"
-description = "E-ink friendly Textual workspace (LLM terminal, mail, calendar, browser) for Olares One"
+description = "E-ink friendly Textual workspace (SSH shell, mail, calendar, browser, k9s, LLM terminal) for Olares One"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
