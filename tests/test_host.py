@@ -58,7 +58,8 @@ def bridge():
     from tui_os.app import TuiOS
 
     b = TerminalBridge(
-        lambda dc: TuiOS(Settings(demo_mode=True, telemetry_interval=1.0), driver_class=dc),
+        lambda dc: TuiOS(Settings(demo_mode=True, telemetry_interval=1.0, start_tab="terminal",
+                                  shell_autoconnect=False), driver_class=dc),
         cols=147,
         rows=46,
     )
@@ -77,16 +78,16 @@ def screen(b):
 def test_bridge_renders_textual_app(bridge):
     assert _wait_for(lambda: "OLARES ONE" in screen(bridge) and "°C" in screen(bridge))
     text = screen(bridge)
-    assert "1 Terminal" in text and "4 Browser" in text
+    assert "1 Shell" in text and "4 Browser" in text and "6 LLM Terminal" in text
 
 
 def test_bridge_keys_drive_the_app(bridge):
-    assert _wait_for(lambda: "1 Terminal" in screen(bridge))
+    assert _wait_for(lambda: "6 LLM Terminal" in screen(bridge))
     bridge.send_key("f2")
     assert _wait_for(lambda: "NeoMutt" in screen(bridge))
     bridge.send_key("ctrl+b")  # hide telemetry: workspace starts at column 0
     assert _wait_for(lambda: "OLARES ONE" not in screen(bridge))
-    bridge.send_key("f1")
+    bridge.send_key("f6")
     assert _wait_for(lambda: bridge.app.focused is not None and bridge.app.focused.id == "prompt")
     bridge.send_text("/help")
     bridge.send_key("enter", "\r")
@@ -127,7 +128,8 @@ def test_bridge_exit_sets_finished():
 
     exited = []
     b = TerminalBridge(
-        lambda dc: TuiOS(Settings(demo_mode=True), driver_class=dc), on_exit=exited.append
+        lambda dc: TuiOS(Settings(demo_mode=True, shell_autoconnect=False), driver_class=dc),
+        on_exit=exited.append
     )
     b.start()
     assert b.ready.wait(10)

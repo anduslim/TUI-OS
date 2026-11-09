@@ -47,7 +47,8 @@ def make(snap, **kw):
 
     client = OllamaClient("http://o:11434", "qwen2.5-coder:14b",
                           transport=ollama_transport(["hi"], models=("qwen2.5-coder:14b",)))
-    return TuiOS(Settings(telemetry_interval=1.0, stream_flush_interval=0.05),
+    return TuiOS(Settings(telemetry_interval=1.0, stream_flush_interval=0.05, start_tab="terminal",
+                          shell_autoconnect=False),
                  telemetry_source=FixedTelemetry(snap), ollama_client=client, **kw)
 
 

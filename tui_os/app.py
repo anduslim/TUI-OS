@@ -3,7 +3,7 @@
 Layout (landscape)::
 
     ┌ title bar ─────────────────────────────────────────────────────────┐
-    │ ┌ OLARES ONE ─┐ ┌ Terminal │ Mail │ Calendar │ Browser ──────────┐ │
+    │ ┌ OLARES ONE ─┐ ┌ Shell │ Mail │ Calendar │ Browser │ K9s │ LLM ─┐ │
     │ │ telemetry   │ │                                                │ │
     │ │ (Ctrl+B)    │ │   workspace (1fr — claims full width when the  │ │
     │ │ 30 cols     │ │   telemetry panel is hidden)                   │ │
@@ -38,13 +38,14 @@ from .theme import EINK_THEME
 from .widgets.browser import BrowserPane
 from .widgets.calendar import CalendarPane
 from .widgets.k9s import K9sPane, SessionFactory
+from .widgets.shell import ShellPane
 from .widgets.webview import WebBrowserPane
 from .host.services import HostServices, WebViewEvent
 from .widgets.mail import MailPane
 from .widgets.telemetry_panel import TelemetryPanel
 from .widgets.terminal import TerminalPane
 
-TABS = ("terminal", "mail", "calendar", "browser", "k9s")
+TABS = ("shell", "mail", "calendar", "browser", "k9s", "terminal")
 
 
 class TelemetryUpdated(Message):
@@ -99,11 +100,12 @@ class TuiOS(App[None]):
 
     BINDINGS = [
         Binding("ctrl+b", "toggle_telemetry", "Telemetry", priority=True),
-        Binding("f1,alt+1", "show_tab('terminal')", "Term", priority=True),
+        Binding("f1,alt+1", "show_tab('shell')", "Shell", priority=True),
         Binding("f2,alt+2", "show_tab('mail')", "Mail", priority=True),
         Binding("f3,alt+3", "show_tab('calendar')", "Cal", priority=True),
         Binding("f4,alt+4", "show_tab('browser')", "Web", priority=True),
         Binding("f5,alt+5", "show_tab('k9s')", "K9s", priority=True),
+        Binding("f6,alt+6", "show_tab('terminal')", "LLM", priority=True),
         Binding("ctrl+r", "refresh_screen", "Redraw", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
@@ -135,6 +137,11 @@ class TuiOS(App[None]):
         # Fixed full-scale reference for network bars (adapts upward to peaks).
         self._net_peak = 12.5e6  # 100 Mbit/s
 
+    @property
+    def _start_tab(self) -> str:
+        tab = self.settings.start_tab
+        return tab if tab in TABS else "shell"
+
     def _make_telemetry(self) -> TelemetrySource:
         if self.settings.demo_mode:
             return DemoTelemetry()
@@ -148,14 +155,9 @@ class TuiOS(App[None]):
         yield TitleBar(self.settings.olares_host, id="titlebar")
         with Horizontal(id="desktop"):
             yield TelemetryPanel(source_label=source_label, id="telemetry")
-            with TabbedContent(initial="terminal", id="workspace"):
-                with TabPane("1 Terminal", id="terminal"):
-                    yield TerminalPane(
-                        self.ollama,
-                        flush_interval=self.settings.stream_flush_interval,
-                        system_prompt=self.settings.ollama_system_prompt,
-                        id="terminal-pane",
-                    )
+            with TabbedContent(initial=self._start_tab, id="workspace"):
+                with TabPane("1 Shell", id="shell"):
+                    yield ShellPane(self.settings, session_factory=self._k9s_factory, id="shell-pane")
                 with TabPane("2 Mail", id="mail"):
                     yield MailPane(id="mail-pane")
                 with TabPane("3 Calendar", id="calendar"):
@@ -167,6 +169,13 @@ class TuiOS(App[None]):
                         yield BrowserPane(home=self.settings.browser_home, id="browser-pane")
                 with TabPane("5 K9s (Cluster)", id="k9s"):
                     yield K9sPane(self.settings, session_factory=self._k9s_factory, id="k9s-pane")
+                with TabPane("6 LLM Terminal", id="terminal"):
+                    yield TerminalPane(
+                        self.ollama,
+                        flush_interval=self.settings.stream_flush_interval,
+                        system_prompt=self.settings.ollama_system_prompt,
+                        id="terminal-pane",
+                    )
         yield Footer(compact=True)
 
     def on_mount(self) -> None:
@@ -174,7 +183,8 @@ class TuiOS(App[None]):
         self.theme = EINK_THEME.name
         self.query_one("#telemetry").display = self.settings.telemetry_visible
         self.telemetry_loop()
-        self._focus_tab("terminal")
+        self._focus_tab(self._start_tab)
+        self._activate(self._start_tab)
 
     async def on_unmount(self) -> None:
         await asyncio.gather(
@@ -246,10 +256,16 @@ class TuiOS(App[None]):
     _FOCUS = {"terminal": "#prompt", "mail": "#mail-index", "calendar": "#calendar-pane"}
 
     def _focus_target(self, tab: str):
-        """Panes with changing internals (browser, k9s) say what to focus."""
+        """Panes with changing internals (shell, browser, k9s) say what to focus."""
         if tab in self._FOCUS:
             return self.query_one(self._FOCUS[tab])
         return self.query_one(f"#{tab}-pane").focus_target
+
+    def _activate(self, tab: str) -> None:
+        """SSH tabs connect the first time they are shown."""
+        pane = self.query(f"#{tab}-pane")
+        if pane and isinstance(pane.first(), (ShellPane, K9sPane)):
+            pane.first().activate()
 
     def _focus_tab(self, tab: str) -> None:
         def apply() -> None:
@@ -263,8 +279,7 @@ class TuiOS(App[None]):
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.pane.id in TABS:
             self._focus_tab(event.pane.id)
-            if event.pane.id == "k9s":
-                self.query_one(K9sPane).activate()
+            self._activate(event.pane.id)
             if event.pane.id == "browser" and self.query(WebBrowserPane):
                 self.call_after_refresh(self.query_one(WebBrowserPane).enter_page)
 

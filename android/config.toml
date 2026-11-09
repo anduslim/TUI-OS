@@ -7,3 +7,8 @@ ollama_model = "llama3.1:8b"
 telemetry_interval = 5
 stream_flush_interval = 0.35
 demo_mode = false
+
+# Tab 1 is an SSH shell on the node; tab 6 is the LLM terminal.
+# start_tab = "shell"
+# shell_user = "olares"
+# shell_command = "tmux new -A -s main"

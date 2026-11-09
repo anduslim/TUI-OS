@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from .kivy_app import TerminalView
 
 #: Keys the page hands back; forwarded to Textual as these key names.
-_FORWARD = {"f1", "f2", "f3", "f4", "f5", "ctrl+b", "ctrl+l", "ctrl+q"}
+_FORWARD = {"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+b", "ctrl+l", "ctrl+q"}
 
 
 class _Listener(PythonJavaClass):

@@ -70,6 +70,17 @@ class Settings:
     #: Start with the telemetry sidebar visible.
     telemetry_visible: bool = True
     browser_home: str = "about:home"
+    #: Tab shown at start: shell, mail, calendar, browser, k9s or terminal
+    #: (the LLM terminal).
+    start_tab: str = "shell"
+    #: Shell tab: SSH target (empty host = olares_host).
+    shell_host: str = ""
+    shell_user: str = "olares"
+    shell_port: int = 22
+    #: Run this instead of the login shell, e.g. "tmux new -A -s main".
+    shell_command: str = ""
+    #: Connect as soon as the Shell tab is first shown.
+    shell_autoconnect: bool = True
     #: K9s tab: SSH target running k9s (empty host = olares_host, which can
     #: be a Tailscale MagicDNS name such as "olares-one").
     k9s_host: str = ""
@@ -99,6 +110,10 @@ class Settings:
         """Keys and known_hosts live next to the config file (app storage on Android)."""
         env = os.environ.get("TUI_OS_DATA")
         return Path(env).expanduser() if env else default_config_path().parent
+
+    @property
+    def resolved_shell_host(self) -> str:
+        return self.shell_host or self.olares_host
 
     @property
     def resolved_k9s_host(self) -> str:
@@ -161,6 +176,10 @@ _ENV_MAP = {
     "TUI_OS_BROWSER_HOME": "browser_home",
     "TUI_OS_K9S_HOST": "k9s_host",
     "TUI_OS_K9S_USER": "k9s_user",
+    "TUI_OS_START_TAB": "start_tab",
+    "TUI_OS_SHELL_HOST": "shell_host",
+    "TUI_OS_SHELL_USER": "shell_user",
+    "TUI_OS_SHELL_COMMAND": "shell_command",
 }
 
 

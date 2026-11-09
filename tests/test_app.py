@@ -57,7 +57,8 @@ async def test_tab_switching_shortcuts(make_app):
     app = make_app()
     async with app.run_test(size=(160, 48)) as pilot:
         tabs = app.query_one("#workspace", TabbedContent)
-        for key, tab in (("f2", "mail"), ("f3", "calendar"), ("f4", "browser"), ("f1", "terminal")):
+        for key, tab in (("f2", "mail"), ("f3", "calendar"), ("f4", "browser"), ("f5", "k9s"),
+                         ("f1", "shell"), ("f6", "terminal")):
             await pilot.press(key)
             await pilot.pause()
             assert tabs.active == tab

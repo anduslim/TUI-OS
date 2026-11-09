@@ -208,7 +208,7 @@ async def test_k9s_tab_end_to_end(ssh_server, settings):
             if pane.state == "connected" and fake.sizes:
                 break
         assert pane.state == "connected", pane.error
-        term = app.query_one(TerminalEmulator)
+        term = pane.query_one(TerminalEmulator)
         assert app.focused is term
         # The PTY is exactly the panel's interior: no clipping.
         assert fake.sizes[0] == (term.size.width, term.size.height) == term.grid_size
@@ -275,6 +275,6 @@ async def test_k9s_tab_degrades_when_ssh_cannot_load(settings, monkeypatch):
         await pilot.pause()
         pane = app.query_one(K9sPane)
         assert pane.state == "error" and "SSH is unavailable" in (pane.error or "")
-        await pilot.press("f1")  # rest of the app works
+        await pilot.press("f6")  # rest of the app works
         await pilot.pause()
         assert app.query_one("#workspace").active == "terminal"

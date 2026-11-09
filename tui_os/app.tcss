@@ -320,28 +320,28 @@ DataTable:focus {
     border-left: $frame-focus;
 }
 
-/* ---- k9s ------------------------------------------------------------- */
-#k9s-pane {
+/* ---- ssh panes (shell, k9s) -------------------------------------------- */
+ShellPane, K9sPane {
     height: 1fr;
 }
 
-#k9s-frame {
+.ssh-frame {
     height: 1fr;
     border: $frame;
     border-title-color: $eink-green;
     border-title-style: bold;
 }
 
-#k9s-frame:focus-within {
+.ssh-frame:focus-within {
     border: $frame-focus;
 }
 
-#k9s-idle {
+.ssh-idle {
     height: 1fr;
     padding: 1 2;
 }
 
-#k9s-term {
+.ssh-term {
     height: 1fr;
     width: 1fr;
 }
