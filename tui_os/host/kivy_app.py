@@ -242,6 +242,7 @@ class OlaresWorkspaceApp(App):
         self.bridge = TerminalBridge(self._make_tui, on_exit=self._tui_exited)
         self.view = TerminalView(self.bridge)
         self._chars = CharFallback()
+        self._swallow_text: tuple[str, float] | None = None
         self._pending_ev = None
         self._keyboard = None
         Window.bind(on_key_down=self._on_key_down, on_textinput=self._on_textinput)
@@ -349,6 +350,10 @@ class OlaresWorkspaceApp(App):
             return True
         if isinstance(action, NamedKey):
             self._cancel_pending()
+            # A Ctrl/Alt chord on a printable key must not also type that key
+            # if the platform sends a text event for it (e.g. Ctrl+1 -> "1").
+            base = action.key.rsplit("+", 1)[-1]
+            self._swallow_text = (base, Clock.get_time()) if len(base) == 1 and "+" in action.key else None
             self.bridge.send_key(action.key, action.character)
             return True
         if isinstance(action, CharKey):
@@ -362,6 +367,10 @@ class OlaresWorkspaceApp(App):
 
     def _on_textinput(self, _window, text: str) -> None:
         self._trace(f"textinput {text!r}")
+        swallow, self._swallow_text = self._swallow_text, None
+        if swallow and text.lower() == swallow[0] and Clock.get_time() - swallow[1] < 0.3:
+            self._trace(f"textinput {text!r} swallowed (part of a key chord)")
+            return
         self._cancel_pending()
         self._chars.text_input()
         self.bridge.send_text(text)

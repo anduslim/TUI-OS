@@ -22,6 +22,8 @@ from tui_os.host.keymap import CharKey, NamedKey, translate_keydown
         (113, "q", ["ctrl"], NamedKey("ctrl+q", "\x11")),
         (283, None, [], NamedKey("f2")),
         (50, "2", ["alt"], NamedKey("alt+2")),
+        (49, "1", ["ctrl"], NamedKey("ctrl+1")),
+        (54, None, ["ctrl"], NamedKey("ctrl+6")),
         (27, None, [], NamedKey("escape", "\x1b")),
         (13, None, [], NamedKey("enter", "\r")),
         (9, None, ["shift"], NamedKey("shift+tab")),

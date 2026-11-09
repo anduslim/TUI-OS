@@ -90,7 +90,7 @@ class SshPane(Vertical):
         return True
 
     def help_text(self, connected: bool) -> str:
-        return " Enter connect   tap a tab to switch   ^b telemetry"
+        return " Enter connect   ^1-6 or tap a tab   ^b telemetry"
 
     def describe(self, text: Text) -> None:
         """Idle screen: heading and what Enter will do."""

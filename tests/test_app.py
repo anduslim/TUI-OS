@@ -64,6 +64,27 @@ async def test_tab_switching_shortcuts(make_app):
             assert tabs.active == tab
 
 
+async def test_ctrl_digit_switches_tabs_even_from_the_shell(make_app):
+    """Boox: F-keys and Alt+digit belong to the system, so Ctrl+1..6 switch tabs,
+    including while the SSH terminal (which takes every other key) has focus."""
+    app = make_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        tabs = app.query_one("#workspace", TabbedContent)
+        for key, tab in (("ctrl+2", "mail"), ("ctrl+3", "calendar"), ("ctrl+4", "browser"),
+                         ("ctrl+5", "k9s"), ("ctrl+6", "terminal"), ("ctrl+1", "shell")):
+            await pilot.press(key)
+            await pilot.pause()
+            assert tabs.active == tab
+        from tui_os.widgets.term_emulator import TerminalEmulator
+        term = app.query_one("#shell-pane").query_one(TerminalEmulator)
+        term.display = True
+        term.focus()
+        await pilot.pause()
+        await pilot.press("ctrl+2")
+        await pilot.pause()
+        assert tabs.active == "mail"
+
+
 async def test_browser_follows_numbered_link(make_app):
     app = make_app()
     async with app.run_test(size=(160, 48)) as pilot:
