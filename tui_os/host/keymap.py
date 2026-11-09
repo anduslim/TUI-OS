@@ -32,6 +32,9 @@ SPECIAL_KEYS: dict[int, tuple[str, str | None]] = {
     **{282 + i: (f"f{i + 1}", None) for i in range(12)},
 }
 
+#: Keys that paste the Android clipboard instead of reaching the TUI as keys.
+PASTE_KEYS = frozenset({"ctrl+v", "shift+insert"})
+
 _US_SHIFT = dict(zip("`1234567890-=[]\\;',./", '~!@#$%^&*()_+{}|:"<>?'))
 
 

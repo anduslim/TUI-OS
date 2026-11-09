@@ -257,6 +257,18 @@ class TerminalBridge:
         for ch in text:
             self.send_key(_character_to_key(ch), ch)
 
+    def send_paste(self, text: str) -> bool:
+        """Deliver clipboard text as one Textual Paste event (bracketed paste).
+
+        Input fields, the compose editor and the SSH terminal all handle
+        Paste, so a pasted password arrives whole instead of as keystrokes
+        that could trigger bindings.
+        """
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        if not text:
+            return False
+        return self._dispatch(events.Paste(text))
+
     def tap(self, col: int, row: int) -> None:
         """Left click at a cell (zero-based), via SGR mouse sequences.
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from pathlib import Path
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
@@ -41,7 +42,7 @@ from kivy.utils import platform  # noqa: E402
 from .bridge import DEFAULT_BG, Run, TerminalBridge  # noqa: E402
 from .glyphs import DRAWN, cell_rects  # noqa: E402
 from .grid import GRID_COLS, GRID_ROWS, GridGeometry  # noqa: E402
-from .keymap import CharFallback, CharKey, NamedKey, translate_keydown  # noqa: E402
+from .keymap import PASTE_KEYS, CharFallback, CharKey, NamedKey, translate_keydown  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 FONT_DIR = ROOT / "assets" / "fonts"
@@ -68,6 +69,8 @@ OVERRIDE_HEADER = """\
 
 REFRESH_HZ = 20
 SWIPE_ROWS = 3
+#: Hold a finger this long (seconds) without moving to paste the clipboard.
+LONG_PRESS_S = 0.6
 TEXT_FALLBACK_DELAY = 0.06
 
 
@@ -87,6 +90,7 @@ class TerminalView(Widget):
         self._rows: dict[int, InstructionGroup] = {}
         self._textures: dict[tuple[str, str, bool], object] = {}
         self._touch_start: tuple[float, float] | None = None
+        self._touch_t0 = 0.0
         with self.canvas.before:
             Color(*_rgb(DEFAULT_BG))
             self._bg = Rectangle(pos=self.pos, size=self.size)
@@ -191,6 +195,7 @@ class TerminalView(Widget):
     def on_touch_down(self, touch) -> bool:
         if self.collide_point(*touch.pos):
             self._touch_start = touch.pos
+            self._touch_t0 = time.monotonic()
             return True
         return False
 
@@ -205,7 +210,26 @@ class TerminalView(Widget):
             self.bridge.send_key("pagedown" if dy > 0 else "pageup")
         else:
             self.bridge.tap(*self.cell_at(*touch.pos))
+            moved = max(abs(touch.x - sx) / self.grid.cell_w, abs(touch.y - sy) / self.grid.cell_h)
+            if time.monotonic() - self._touch_t0 >= LONG_PRESS_S and moved < 1:
+                # Long press: focus what's under the finger, then paste into it.
+                paste_clipboard(self.bridge)
         return True
+
+
+def paste_clipboard(bridge: TerminalBridge) -> None:
+    """Send the Android/desktop clipboard to the TUI as a Paste event."""
+    try:
+        from kivy.core.clipboard import Clipboard
+
+        text = Clipboard.paste()
+    except Exception as exc:  # noqa: BLE001 - no clipboard provider: say so, don't crash
+        bridge.call_in_app(lambda app: app.notify(f"Clipboard unavailable: {exc}", severity="warning"))
+        return
+    if not text:
+        bridge.call_in_app(lambda app: app.notify("Clipboard is empty."))
+        return
+    bridge.send_paste(text)
 
 
 class OlaresWorkspaceApp(App):
@@ -319,6 +343,10 @@ class OlaresWorkspaceApp(App):
     def _on_key_down(self, _window, keycode, _scancode, codepoint, modifiers) -> bool:
         self._trace(f"key_down keycode={keycode} scancode={_scancode} codepoint={codepoint!r} mods={modifiers}")
         action = translate_keydown(keycode, codepoint, modifiers or [])
+        if isinstance(action, NamedKey) and action.key in PASTE_KEYS:
+            self._cancel_pending()
+            paste_clipboard(self.bridge)
+            return True
         if isinstance(action, NamedKey):
             self._cancel_pending()
             self.bridge.send_key(action.key, action.character)
