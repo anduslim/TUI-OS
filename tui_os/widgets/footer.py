@@ -85,9 +85,10 @@ class KeyBar(Static):
                 return key if enabled else None
         return None
 
-    def on_click(self, event: events.Click) -> None:
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        # Mouse down, as Footer does: a tap runs the key at once, without
+        # waiting for Textual to pair it with the release into a Click.
         key = self.key_at(event.x)
         if key is not None:
             event.stop()
-            # Footer does the same: as if the key were pressed.
             self.app.simulate_key(key.split(",")[0])

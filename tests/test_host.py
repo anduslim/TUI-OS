@@ -306,8 +306,10 @@ def test_bridge_paste_fills_the_vault_password_field():
 
 
 def test_key_bar_matches_footer_and_taps_run_keys(bridge):
-    assert _wait_for(lambda: "^b Telemetry" in bridge.text_lines()[-1])
+    # The bar changes once focus lands in the prompt ("esc Cancel" appears
+    # first, shifting every key): tap only what the settled bar shows.
+    assert _wait_for(lambda: bridge.text_lines()[-1].startswith("esc Cancel"))
     last = bridge.text_lines()[-1]
-    assert "f2 Mail" in last and "^r Redraw" in last
+    assert "^b Telemetry" in last and "f2 Mail" in last and "^r Redraw" in last
     bridge.tap(last.index("f2 Mail") + 1, len(bridge.text_lines()) - 1)
     assert _wait_for(lambda: "NeoMutt" in screen(bridge))
