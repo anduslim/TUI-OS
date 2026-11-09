@@ -9,6 +9,8 @@
 #   * signer is not the throwaway "Android Debug" certificate
 #   * the app is not marked debuggable (aapt2)
 #   * optional: the signer is EXACTLY the expected certificate (pinning)
+#   * the app's own code and assets are inside assets/private.tar
+#     (python-for-android can silently pack only main.py)
 # Prints cert_sha256=<hex> (and appends it to $GITHUB_OUTPUT when set).
 set -euo pipefail
 
@@ -49,6 +51,19 @@ fi
 if "$BT/aapt2" dump badging "$APK" 2>/dev/null | grep -q "application-debuggable"; then
   fail "APK is debuggable (expected a release build)"
 fi
+
+# The app itself: without these the APK installs and opens a black screen.
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+unzip -q -o "$APK" assets/private.tar -d "$tmp" || fail "assets/private.tar missing from the APK"
+contents="$(tar -tf "$tmp/assets/private.tar")"
+for want in main tui_os/__init__ tui_os/app tui_os/host/kivy_app tui_os/host/bridge; do
+  grep -qE "^(\./)?$want\.pyc?$" <<<"$contents" || fail "private.tar lacks $want.py(c): the app code isn't packaged"
+done
+for want in tui_os/app.tcss assets/fonts/JetBrainsMonoNL-Regular.ttf android/config.toml; do
+  grep -qE "^(\./)?$want$" <<<"$contents" || fail "private.tar lacks $want"
+done
+echo "private.tar: $(wc -l <<<"$contents") files, app code present"
 
 if [[ -n "$EXPECTED" ]]; then
   want="$(tr -d ': ' <<<"$EXPECTED" | tr 'A-F' 'a-f')"
