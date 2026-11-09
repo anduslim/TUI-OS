@@ -19,7 +19,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ini,css,tcss,toml,ttf,txt,yaml
 
 # TUI-OS: keep tests, design scratch and build output out of the APK
-source.exclude_dirs = tests, tools, bin, .buildozer, .git, .github, design, __pycache__
+source.exclude_dirs = tests, tools, recipes, bin, .buildozer, .git, .github, design, __pycache__
 
 # (str) Application version
 version = 1.1.1
@@ -96,6 +96,11 @@ android.debug_artifact = apk
 
 # (str) Android logcat filters
 android.logcat_filters = *:S python:D
+
+# TUI-OS: recipes/cryptography overrides p4a's recipe so the Rust extension
+# links libpython (without it, SSH fails to load on the device). See the
+# recipe's docstring.
+p4a.local_recipes = ./recipes
 
 [buildozer]
 # (int) Log level (0 = error only, 1 = info, 2 = debug and stdout)

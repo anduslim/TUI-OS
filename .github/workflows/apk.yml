@@ -81,6 +81,16 @@ jobs:
         # (ImportError: capture_logging). It is rebuilt in seconds.
         run: rm -rf .buildozer/android/platform/build-*/build/venv
 
+      - name: Rebuild cryptography and the dist with the local recipe
+        # A cached build of cryptography from p4a's own recipe lacks the
+        # libpython link (recipes/cryptography). p4a reuses cached recipe
+        # builds and dists, so drop them; tools/check_native_libs.sh then
+        # proves the APK has the fix.
+        run: |
+          rm -rf .buildozer/android/platform/build-*/build/other_builds/cryptography* \
+                 .buildozer/android/platform/build-*/build/python-installs/*/*/cryptography* \
+                 .buildozer/android/platform/build-*/dists
+
       - name: Version
         id: version
         env:
@@ -163,6 +173,7 @@ jobs:
           EXPECTED_CERT: ${{ steps.signing.outputs.mode == 'release' && secrets.ANDROID_CERT_SHA256 || '' }}
         run: |
           tools/verify_apk.sh "dist/${{ steps.collect.outputs.apk_name }}" "$EXPECTED_CERT"
+          tools/check_native_libs.sh "dist/${{ steps.collect.outputs.apk_name }}"
           (cd dist && sha256sum "${{ steps.collect.outputs.apk_name }}" > "${{ steps.collect.outputs.apk_name }}.sha256")
 
       - uses: actions/upload-artifact@v4
