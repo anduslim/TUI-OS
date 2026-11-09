@@ -347,28 +347,9 @@ ShellPane, K9sPane {
 }
 
 /* ---- footer & notifications ------------------------------------------- */
-Footer {
-    background: $eink-bg;
-}
-
-Footer FooterKey {
+KeyBar {
     background: $eink-bg;
     color: $eink-fg;
-}
-
-Footer FooterKey .footer-key--key {
-    background: $eink-bg;
-    color: $eink-green;
-    text-style: bold;
-}
-
-Footer FooterKey:hover {
-    background: $eink-bg;
-}
-
-/* Textual draws this separator at 20% foreground (#333333): no greys. */
-Footer FooterKey.-command-palette {
-    border-left: vkey $eink-fg;
 }
 
 Toast {

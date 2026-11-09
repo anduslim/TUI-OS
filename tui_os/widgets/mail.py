@@ -233,6 +233,13 @@ class MailPane(Vertical):
             self._update_status()
             self.app.notify(f"{type(exc).__name__}: {exc}", title="Mail", severity="error", timeout=10)
             return
+        if messages == self.messages and not self.deleted:
+            # Periodic refresh with nothing new: keep the table and the
+            # selection as they are (no rebuild, no repaint).
+            if self._state:
+                self._state = ""
+                self._update_status()
+            return
         self.messages = messages
         self.deleted.clear()
         self._state = ""

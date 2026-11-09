@@ -10,6 +10,8 @@ tablet sleeps; reopening the tab reattaches to it.
 
 from __future__ import annotations
 
+import shlex
+
 from rich.text import Text
 
 from ..config import Settings
@@ -17,12 +19,28 @@ from ..services.ssh import SshTarget
 from .shell import ShellPane, shell_target
 
 
+def login_shell(command: str) -> str:
+    """Run ``command`` through the user's interactive login shell.
+
+    A command sent over SSH gets a bare shell: no ``.profile`` or ``.bashrc``,
+    so ``kubectl`` (and its KUBECONFIG), tmux in ``/usr/local/bin`` or
+    ``~/.local/bin`` and shell aliases are missing, and the command exits
+    with 127. Typed into the Shell tab, the same command works.
+    """
+    command = command.strip()
+    return f'exec "${{SHELL:-/bin/bash}}" -ilc {shlex.quote(command)}' if command else ""
+
+
 class AgentPane(ShellPane):
     TITLE = "AGENT"
     FRAME_TITLE = "agent"
 
     def make_target(self, settings: Settings) -> SshTarget:
-        return shell_target(settings, command=settings.agent_command)
+        return shell_target(settings, command=login_shell(settings.agent_command))
+
+    @property
+    def display_command(self) -> str:
+        return self.settings.agent_command
 
     @property
     def autoconnect(self) -> bool:
