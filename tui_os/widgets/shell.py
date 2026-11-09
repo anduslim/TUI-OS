@@ -5,7 +5,7 @@ Opens the user's login shell, or ``shell_command`` when set; for example
 survives the tablet sleeping or the app restarting.
 
 Keyboard: everything goes to the remote side, including Ctrl+B (the tmux
-prefix) and Ctrl+R (shell history search). The app keeps only F1–F6 and
+prefix) and Ctrl+R (shell history search). The app keeps only Ctrl+1–6 / F1–F6 (tabs) and
 Ctrl+Q; tap a tab label to switch tabs.
 """
 
@@ -18,12 +18,12 @@ from ..services.ssh import SshTarget
 from .ssh_pane import SshPane
 
 
-def shell_target(settings: Settings) -> SshTarget:
+def shell_target(settings: Settings, command: str | None = None) -> SshTarget:
     return SshTarget(
         host=settings.resolved_shell_host,
         username=settings.shell_user,
         port=settings.shell_port,
-        command=settings.shell_command,
+        command=settings.shell_command if command is None else command,
         key_path=settings.resolved_ssh_key_path,
         known_hosts_path=settings.data_dir / "known_hosts",
         mode="shell",
@@ -33,7 +33,8 @@ def shell_target(settings: Settings) -> SshTarget:
 class ShellPane(SshPane):
     TITLE = "SHELL"
     FRAME_TITLE = "shell"
-    RESERVED = frozenset({"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+q"})
+    RESERVED = frozenset({"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+q",
+                          "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6"})
 
     def make_target(self, settings: Settings) -> SshTarget:
         return shell_target(settings)
@@ -44,8 +45,8 @@ class ShellPane(SshPane):
 
     def help_text(self, connected: bool) -> str:
         if connected:
-            return " all keys → remote (^b ^r too)   tap a tab to switch   ^q quit app   exit/^d ends session"
-        return " Enter connect   tap a tab to switch   ^b telemetry"
+            return " all keys → remote (^b ^r too)   ^1-6 or tap a tab   ^q quit app   exit/^d ends session"
+        return " Enter connect   ^1-6 or tap a tab   ^b telemetry"
 
     def ended_text(self) -> str:
         return "session ended"

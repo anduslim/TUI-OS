@@ -37,9 +37,11 @@ from .services.telemetry import (
     TelemetrySource,
 )
 from .theme import EINK_THEME
+from .version import app_version
 from .widgets.browser import BrowserPane
 from .widgets.calendar import CalendarPane
 from .widgets.k9s import K9sPane, SessionFactory
+from .widgets.agent import AgentPane
 from .widgets.shell import ShellPane
 from .widgets.webview import WebBrowserPane
 from .host.services import HostServices, WebViewEvent
@@ -84,7 +86,7 @@ class TitleBar(Static):
             return
         self._last = stamp
         text = Text()
-        text.append(" TUI-OS ", "bold #000000 on #00FF00")
+        text.append(f" TUI-OS {app_version()} ", "bold #000000 on #00FF00")
         text.append(f"  olares://{self.host}", "bold #FFFFFF")
         right = f"{stamp} "
         text.append(" " * max(1, self.size.width - text.cell_len - len(right)))
@@ -105,12 +107,12 @@ class TuiOS(App[None]):
 
     BINDINGS = [
         Binding("ctrl+b", "toggle_telemetry", "Telemetry", priority=True),
-        Binding("f1,alt+1", "show_tab('shell')", "Shell", priority=True),
-        Binding("f2,alt+2", "show_tab('mail')", "Mail", priority=True),
-        Binding("f3,alt+3", "show_tab('calendar')", "Cal", priority=True),
-        Binding("f4,alt+4", "show_tab('browser')", "Web", priority=True),
-        Binding("f5,alt+5", "show_tab('k9s')", "K9s", priority=True),
-        Binding("f6,alt+6", "show_tab('terminal')", "LLM", priority=True),
+        Binding("ctrl+1,f1,alt+1", "show_tab('shell')", "Shell", priority=True),
+        Binding("ctrl+2,f2,alt+2", "show_tab('mail')", "Mail", priority=True),
+        Binding("ctrl+3,f3,alt+3", "show_tab('calendar')", "Cal", priority=True),
+        Binding("ctrl+4,f4,alt+4", "show_tab('browser')", "Web", priority=True),
+        Binding("ctrl+5,f5,alt+5", "show_tab('k9s')", "K9s", priority=True),
+        Binding("ctrl+6,f6,alt+6", "show_tab('terminal')", "LLM", priority=True),
         Binding("ctrl+r", "refresh_screen", "Redraw", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
@@ -174,13 +176,18 @@ class TuiOS(App[None]):
                         yield BrowserPane(home=self.settings.browser_home, id="browser-pane")
                 with TabPane("5 K9s (Cluster)", id="k9s"):
                     yield K9sPane(self.settings, session_factory=self._k9s_factory, id="k9s-pane")
-                with TabPane("6 LLM Terminal", id="terminal"):
-                    yield TerminalPane(
-                        self.ollama,
-                        flush_interval=self.settings.stream_flush_interval,
-                        system_prompt=self.settings.ollama_system_prompt,
-                        id="terminal-pane",
-                    )
+                if self.settings.agent_command.strip():
+                    with TabPane("6 Agent", id="terminal"):
+                        yield AgentPane(self.settings, session_factory=self._k9s_factory,
+                                        id="terminal-pane")
+                else:
+                    with TabPane("6 LLM Terminal", id="terminal"):
+                        yield TerminalPane(
+                            self.ollama,
+                            flush_interval=self.settings.stream_flush_interval,
+                            system_prompt=self.settings.ollama_system_prompt,
+                            id="terminal-pane",
+                        )
         yield KeyBar(id="keybar")
 
     def on_mount(self) -> None:
@@ -287,7 +294,7 @@ class TuiOS(App[None]):
 
     def _focus_target(self, tab: str):
         """Panes with changing internals (shell, browser, k9s) say what to focus."""
-        if tab in self._FOCUS:
+        if tab in self._FOCUS and not isinstance(self.query_one(f"#{tab}-pane"), AgentPane):
             return self.query_one(self._FOCUS[tab])
         return self.query_one(f"#{tab}-pane").focus_target
 

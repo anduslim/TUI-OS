@@ -42,9 +42,9 @@ class K9sPane(SshPane):
 
     def help_text(self, connected: bool) -> str:
         if connected:
-            return (" keys → k9s: ↑↓←→ Enter Esc : / 0-9 ?   app: tap tabs  ^b telemetry"
+            return (" keys → k9s: ↑↓←→ Enter Esc : / 0-9 ?   app: ^1-6 tabs  ^b telemetry"
                     "  ^r redraw  ^q quit   ^c quits k9s")
-        return " Enter connect   tap a tab to switch   ^b telemetry"
+        return " Enter connect   ^1-6 or tap a tab   ^b telemetry"
 
     def ended_text(self) -> str:
         return "k9s exited"

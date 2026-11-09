@@ -86,7 +86,7 @@ class Settings:
     telemetry_visible: bool = True
     browser_home: str = "about:home"
     #: Tab shown at start: shell, mail, calendar, browser, k9s or terminal
-    #: (the LLM terminal).
+    #: (tab 6: the LLM terminal, or the Agent tab when agent_command is set).
     start_tab: str = "shell"
     #: Shell tab: SSH target (empty host = olares_host).
     shell_host: str = ""
@@ -96,6 +96,10 @@ class Settings:
     shell_command: str = ""
     #: Connect as soon as the Shell tab is first shown.
     shell_autoconnect: bool = True
+    #: Tab 6 runs this coding agent over SSH (same host and key as the Shell
+    #: tab) instead of the LLM Terminal, e.g. "tmux new -A -s agent claude"
+    #: or "tmux new -A -s agent opencode". Empty: the LLM Terminal.
+    agent_command: str = ""
     #: K9s tab: SSH target running k9s (empty host = olares_host, which can
     #: be a Tailscale MagicDNS name such as "olares-one").
     k9s_host: str = ""
@@ -278,6 +282,7 @@ _ENV_MAP = {
     "TUI_OS_SHELL_HOST": "shell_host",
     "TUI_OS_SHELL_USER": "shell_user",
     "TUI_OS_SHELL_COMMAND": "shell_command",
+    "TUI_OS_AGENT_COMMAND": "agent_command",
 }
 
 

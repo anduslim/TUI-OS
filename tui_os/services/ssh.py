@@ -77,6 +77,28 @@ def ensure_client_key(path: Path) -> str:
     return Path(str(path) + ".pub").read_text().strip()
 
 
+def export_public_key(public_key: str) -> Path | None:
+    """Copy the device's public key next to the config override, if there is one.
+
+    On the APK that is the app's external files dir, which ``adb pull`` can
+    read (the private data dir can't be read on a release build), so the key
+    can be copied exactly instead of typed off the E-ink screen::
+
+        adb pull /sdcard/Android/data/org.olares.olares_workspace_tui/files/device_key.pub
+    """
+    override = os.environ.get("TUI_OS_CONFIG_OVERRIDE")
+    if not override or not public_key.startswith("ssh-"):
+        return None
+    path = Path(override).parent / "device_key.pub"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists() or path.read_text().strip() != public_key:
+            path.write_text(public_key + "\n")
+    except OSError:
+        return None
+    return path
+
+
 def known_host(target: SshTarget) -> bool:
     try:
         lines = target.known_hosts_path.read_text().splitlines()
@@ -198,6 +220,8 @@ class SshTerminalSession:
             await proc.wait_closed()
         except (asyncssh.Error, OSError) as exc:
             error = str(exc) or type(exc).__name__
+        if self._conn is not None:
+            self._conn.close()  # the program ended: don't leave the connection open
         self._on_exit(proc.exit_status, error)
 
     def write(self, data: str) -> None:

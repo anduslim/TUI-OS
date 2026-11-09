@@ -37,7 +37,7 @@ public class EinkBrowser {
         /** kind: started | finished | error | navigate (about: links). */
         void onPageEvent(String kind, String url, String title);
 
-        /** A key the TUI handles: escape, f1..f6, ctrl+b, ctrl+l, ctrl+q. */
+        /** A key the TUI handles: escape, f1..f6, ctrl+1..6, ctrl+b, ctrl+l, ctrl+q. */
         void onKey(String key);
     }
 
@@ -159,6 +159,12 @@ public class EinkBrowser {
                 case KeyEvent.KEYCODE_B: return "ctrl+b";
                 case KeyEvent.KEYCODE_L: return "ctrl+l";
                 case KeyEvent.KEYCODE_Q: return "ctrl+q";
+                case KeyEvent.KEYCODE_1: return "ctrl+1";
+                case KeyEvent.KEYCODE_2: return "ctrl+2";
+                case KeyEvent.KEYCODE_3: return "ctrl+3";
+                case KeyEvent.KEYCODE_4: return "ctrl+4";
+                case KeyEvent.KEYCODE_5: return "ctrl+5";
+                case KeyEvent.KEYCODE_6: return "ctrl+6";
                 default: break;
             }
         }

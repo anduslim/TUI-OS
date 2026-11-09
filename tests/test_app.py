@@ -64,6 +64,27 @@ async def test_tab_switching_shortcuts(make_app):
             assert tabs.active == tab
 
 
+async def test_ctrl_digit_switches_tabs_even_from_the_shell(make_app):
+    """Boox: F-keys and Alt+digit belong to the system, so Ctrl+1..6 switch tabs,
+    including while the SSH terminal (which takes every other key) has focus."""
+    app = make_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        tabs = app.query_one("#workspace", TabbedContent)
+        for key, tab in (("ctrl+2", "mail"), ("ctrl+3", "calendar"), ("ctrl+4", "browser"),
+                         ("ctrl+5", "k9s"), ("ctrl+6", "terminal"), ("ctrl+1", "shell")):
+            await pilot.press(key)
+            await pilot.pause()
+            assert tabs.active == tab
+        from tui_os.widgets.term_emulator import TerminalEmulator
+        term = app.query_one("#shell-pane").query_one(TerminalEmulator)
+        term.display = True
+        term.focus()
+        await pilot.pause()
+        await pilot.press("ctrl+2")
+        await pilot.pause()
+        assert tabs.active == "mail"
+
+
 async def test_browser_follows_numbered_link(make_app):
     app = make_app()
     async with app.run_test(size=(160, 48)) as pilot:
@@ -141,3 +162,30 @@ async def test_mail_subject_not_parsed_as_markup(make_app):
         table = app.query_one("#mail-index")
         subjects = [str(table.get_row_at(i)[4]) for i in range(table.row_count)]
         assert any(s.startswith("[tui-os]") for s in subjects)
+
+
+def test_version_comes_from_the_ci_build_file(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    from tui_os.version import app_version
+
+    monkeypatch.delitem(sys.modules, "tui_os._build_version", raising=False)
+    assert app_version() == "dev"  # desktop checkout: no build file
+    fake = types.ModuleType("tui_os._build_version")
+    fake.VERSION = "1.1.6"
+    monkeypatch.setitem(sys.modules, "tui_os._build_version", fake)
+    assert app_version() == "1.1.6"
+
+
+async def test_title_bar_shows_the_version(make_app, monkeypatch):
+    import sys
+    import types
+
+    fake = types.ModuleType("tui_os._build_version")
+    fake.VERSION = "9.8.7"
+    monkeypatch.setitem(sys.modules, "tui_os._build_version", fake)
+    app = make_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        await pilot.pause()
+        assert "TUI-OS 9.8.7" in str(app.query_one("#titlebar").render())

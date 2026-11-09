@@ -6,15 +6,16 @@ A text-mode "personal OS" for doing development from an **Onyx Boox Tab Ultra C*
 
 | Tab | Key | What it is |
 |-----|-----|------------|
-| 1 Shell    | `F1` / `Alt+1` | Plain SSH terminal on the Olares One: your login shell, or `tmux new -A -s main` |
-| 2 Mail     | `F2` / `Alt+2` | Gmail over IMAP/SMTP in a neomutt-style index and pager (mock mailbox until configured) |
-| 3 Calendar | `F3` / `Alt+3` | Read-only iCal feed (e.g. Google Calendar) laid out like calcurse (mock data until configured) |
-| 4 Browser  | `F4` / `Alt+4` | **APK:** native Android WebView restyled to the E-ink palette. **Desktop:** text viewport like w3m |
-| 5 K9s (Cluster) | `F5` / `Alt+5` | `k9s` on the Olares One over SSH, in an E-ink skin |
-| 6 LLM Terminal | `F6` / `Alt+6` | Prompt environment that streams from the LLM on the box (Ollama, or any OpenAI-compatible server) |
+| 1 Shell    | `Ctrl+1` / `F1` / `Alt+1` | Plain SSH terminal on the Olares One: your login shell, or `tmux new -A -s main` |
+| 2 Mail     | `Ctrl+2` / `F2` / `Alt+2` | Gmail over IMAP/SMTP in a neomutt-style index and pager (mock mailbox until configured) |
+| 3 Calendar | `Ctrl+3` / `F3` / `Alt+3` | Read-only iCal feed (e.g. Google Calendar) laid out like calcurse (mock data until configured) |
+| 4 Browser  | `Ctrl+4` / `F4` / `Alt+4` | **APK:** native Android WebView restyled to the E-ink palette. **Desktop:** text viewport like w3m |
+| 5 K9s (Cluster) | `Ctrl+5` / `F5` / `Alt+5` | `k9s` on the Olares One over SSH, in an E-ink skin |
+| 6 LLM Terminal | `Ctrl+6` / `F6` / `Alt+6` | Prompt environment that streams from the LLM on the box (Ollama, or any OpenAI-compatible server). With `agent_command` set it becomes **6 Agent**: Claude Code or opencode over SSH |
 
-On the Boox, F1–F6 and Alt+digit are taken by the system keyboard, so **tap a tab
-label** to switch tabs.
+On the Boox, F1–F6 and Alt+digit are taken by the system keyboard, so use
+**Ctrl+1–6** (they work in every tab, the SSH shell and the web page included) or
+**tap a tab label**.
 
 On the left, a 30-column **telemetry panel** shows CPU and GPU temperature, VRAM, and
 network RX/TX from Prometheus. **`Ctrl+B`** hides or shows it, and the workspace
@@ -255,7 +256,7 @@ scrolling.
   service (Ollama, Prometheus, k9s SSH) uses MagicDNS.
 * **Keys:** F4 or Enter sends keys to the page (typing, Tab, arrows, PgUp/PgDn).
   **Esc** hands keys back to the TUI: `u` URL bar, `b` back, `r` reload, Enter back
-  into the page. F1–F6, Ctrl+B, Ctrl+L and Ctrl+Q always reach the TUI. Android
+  into the page. Ctrl+1–6, F1–F6, Ctrl+B, Ctrl+L and Ctrl+Q always reach the TUI. Android
   BACK walks page history, then releases.
 * **Known limit:** the WebView is a native view on top of the TUI, so a toast
   notification can't draw over the page area.
@@ -281,9 +282,29 @@ shell_user = "olares"
 * **tmux:** with `shell_command = "tmux new -A -s main"` you land in the same tmux
   session every time, so work survives the tablet sleeping or the app restarting.
 * **Keys:** everything goes to the remote side, **including Ctrl+B** (the tmux
-  prefix) and **Ctrl+R** (history search). The app keeps only F1–F6 and Ctrl+Q.
+  prefix) and **Ctrl+R** (history search). The app keeps only Ctrl+1–6 / F1–F6 (tabs) and Ctrl+Q.
   To toggle telemetry, switch to another tab first.
 * `exit` or Ctrl+D ends the session; Enter reconnects.
+
+## Coding agents (Claude Code, opencode)
+
+Both run in the Shell tab as they are: type `claude` or `opencode`. The terminal
+answers their start-up queries, brackets pastes so a multi-line paste lands in the
+prompt, and keeps their colours inside the E-ink palette. They must be installed for
+the SSH user on the node (`curl -fsSL https://claude.ai/install.sh | bash`,
+`curl -fsSL https://opencode.ai/install | bash`); the Olares web-terminal apps run
+in their own containers, not on the host.
+
+For a dedicated tab, set `agent_command` and tab 6 becomes **6 Agent** in place of the
+LLM Terminal (same host, user and key as the Shell tab):
+
+```toml
+agent_command = "tmux new -A -s agent claude"     # or: ... -s agent opencode
+```
+
+tmux keeps the agent working while the tablet sleeps; opening the tab reattaches.
+Every key goes to the agent (Esc interrupts, Shift+Tab switches mode, Ctrl+C), except
+Ctrl+1–6 and Ctrl+Q. For a new line in the prompt, end the line with `\` and press Enter.
 
 ## K9s (Cluster) tab
 
@@ -298,7 +319,16 @@ Setup on the Olares One:
    user can read a kubeconfig. If it isn't `~/.kube/config`, set `k9s_kubeconfig`.
 2. Allow the tablet to log in. Either:
    * open the Shell or K9s tab once: it shows the **device public key** (generated on the
-     tablet on first use), which you add to `~/.ssh/authorized_keys`; or
+     tablet on first use), which you add to `~/.ssh/authorized_keys`. Don't type
+     it off the screen: the app also writes it where adb can read it, so copy it
+     exactly from a computer with the tablet on USB:
+
+     ```sh
+     adb pull /sdcard/Android/data/org.olares.olares_workspace_tui/files/device_key.pub
+     ssh-copy-id -f -i device_key.pub olares@olares-one   # or append it by hand
+     ```
+
+     or
    * enable **Tailscale SSH** on the node (`tailscale set --ssh`). No keys are
      needed; the tailnet identity is used.
 3. In `android/config.toml` (or `~/.config/tui-os/config.toml`):
