@@ -112,7 +112,10 @@ def test_bridge_resize_and_tap(bridge):
     bridge.resize(120, 40)
     assert _wait_for(lambda: len(bridge.text_lines()) == 40 and len(bridge.text_lines()[0]) == 120)
     assert _wait_for(lambda: tuple(bridge.app.size) == (120, 40))
-    time.sleep(0.3)  # let the relayout land before hit-testing
+    # Wait for the re-render at the new size to reach the screen (the pyte
+    # buffer can be blank until it does; a fixed sleep flaked on slow CI).
+    assert _wait_for(lambda: "2 Mail" in screen(bridge) and "4 Browser" in screen(bridge))
+    time.sleep(0.3)  # let the compositor map settle before hit-testing
     row = next(i for i, line in enumerate(bridge.text_lines()) if "2 Mail" in line)
     col = bridge.text_lines()[row].index("2 Mail") + 2
     bridge.tap(col, row)
