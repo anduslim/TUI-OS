@@ -101,3 +101,19 @@ async def test_without_agent_command_tab_6_is_the_llm_terminal(make_app):
     async with app.run_test(size=(147, 46)):
         assert app.query_one("#terminal-pane").__class__ is TerminalPane
         assert not app.query(AgentPane)
+
+
+def test_dec_line_drawing_is_drawn_as_lines():
+    """tmux draws borders with ESC ( 0 ... ESC ( B; they must not show as qqqq."""
+    term, _ = _emulator()
+    term.feed("\x1b(0lqqk\x1b(B qx\r\n\x1b)0\x0emqj\x0f ok")
+    assert term.text_lines()[0].startswith("┌──┐ qx")
+    assert term.text_lines()[1].startswith("└─┘ ok")
+    term.feed("\x1b%G\x1b(0q\x1b(B")
+    assert term.text_lines()[1].startswith("└─┘ ok─")
+
+
+def test_utf8_text_is_unchanged():
+    term, _ = _emulator()
+    term.feed("héllo ─│ 日本 ✓")
+    assert term.text_lines()[0].startswith("héllo ─│ 日本 ✓")
