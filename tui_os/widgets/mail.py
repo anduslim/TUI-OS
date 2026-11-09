@@ -1,20 +1,81 @@
-"""Mail tab: neomutt-style index + pager split (mocked mailbox)."""
+"""Mail tab: neomutt-style index + pager split.
+
+With ``mail_address`` / ``mail_password`` set it reads the INBOX over IMAP and
+sends over SMTP (Gmail by default); otherwise it shows the demo mailbox.
+"""
 
 from __future__ import annotations
 
+import asyncio
+from typing import TYPE_CHECKING
+
 from rich.text import Text
-from textual import on
+from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
-from textual.widgets import DataTable, Static
+from textual.screen import ModalScreen
+from textual.widgets import DataTable, Input, Static, TextArea
 
 from .. import mock_data
 from ..mock_data import MailMessage
+from ..services.mail import ImapMailbox, MailAccount, MailError, quote_reply
+
+if TYPE_CHECKING:
+    from ..config import Settings
 
 STYLE_BAR = "bold #FFFFFF on #0000FF"
 STYLE_HDR_KEY = "bold #00FF00"
 STYLE_QUOTE = "#00FF00"
+
+
+def mailbox_from_settings(settings: "Settings | None") -> ImapMailbox | None:
+    if settings is None or not settings.mail_configured:
+        return None
+    return ImapMailbox(MailAccount(
+        address=settings.mail_address, password=settings.mail_password, name=settings.mail_name,
+        imap_host=settings.imap_host, imap_port=settings.imap_port,
+        smtp_host=settings.smtp_host, smtp_port=settings.smtp_port,
+    ))
+
+
+class ComposeScreen(ModalScreen[tuple[str, str, str] | None]):
+    """To / Subject / body editor. Ctrl+S sends, Esc cancels."""
+
+    BINDINGS = [
+        Binding("ctrl+s", "send", "Send", priority=True),
+        Binding("escape", "cancel", "Cancel", priority=True),
+    ]
+
+    def __init__(self, to: str = "", subject: str = "", body: str = "") -> None:
+        super().__init__()
+        self._to, self._subject, self._body = to, subject, body
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="compose-box"):
+            yield Static(Text(" Compose  (Ctrl+S send, Esc cancel)".ljust(200), STYLE_BAR), classes="bar")
+            yield Input(self._to, placeholder="To", id="compose-to")
+            yield Input(self._subject, placeholder="Subject", id="compose-subject")
+            yield TextArea(self._body, id="compose-body", soft_wrap=True, show_line_numbers=False)
+
+    def on_mount(self) -> None:
+        target = "#compose-body" if self._to else "#compose-to"
+        widget = self.query_one(target)
+        widget.focus()
+        if isinstance(widget, TextArea):
+            widget.move_cursor((0, 0))
+
+    def action_send(self) -> None:
+        to = self.query_one("#compose-to", Input).value.strip()
+        if not to:
+            self.app.notify("Add a recipient first.", severity="warning")
+            self.query_one("#compose-to", Input).focus()
+            return
+        self.dismiss((to, self.query_one("#compose-subject", Input).value,
+                      self.query_one("#compose-body", TextArea).text))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class MailPane(Vertical):
@@ -22,18 +83,29 @@ class MailPane(Vertical):
         Binding("j", "cursor(1)", "Next", show=False),
         Binding("k", "cursor(-1)", "Prev", show=False),
         Binding("d", "toggle_delete", "Del"),
+        Binding("dollar_sign", "sync_deletes", "Sync", key_display="$"),
         Binding("f", "toggle_flag", "Flag"),
         Binding("N", "toggle_new", "New", key_display="N"),
         Binding("space", "pager_page(1)", "Page", show=False),
         Binding("minus", "pager_page(-1)", "Page up", show=False),
         Binding("r", "reply", "Reply"),
         Binding("m", "compose", "Mail"),
+        Binding("g", "refresh", "Get"),
     ]
 
-    def __init__(self, *, id: str | None = None) -> None:
+    def __init__(self, settings: "Settings | None" = None, *, mailbox: ImapMailbox | None = None,
+                 id: str | None = None) -> None:
         super().__init__(id=id)
-        self.messages: list[MailMessage] = mock_data.mailbox()
+        self.settings = settings
+        self.mailbox = mailbox or mailbox_from_settings(settings)
+        self.messages: list[MailMessage] = [] if self.mailbox else mock_data.mailbox()
         self.deleted: set[int] = set()
+        self._folder = "INBOX" if self.mailbox else "INBOX (demo)"
+        self._state = ""
+
+    @property
+    def live(self) -> bool:
+        return self.mailbox is not None
 
     def compose(self) -> ComposeResult:
         yield Static("", id="mail-status", classes="bar")
@@ -43,7 +115,7 @@ class MailPane(Vertical):
         with VerticalScroll(id="mail-pager"):
             yield Static("", id="mail-body")
         yield Static(
-            "^q:Quit  d:Del  f:Flag  N:New  r:Reply  m:Mail  j/k:Move  Space:Page",
+            "d:Del  $:Sync  f:Flag  N:New  r:Reply  m:Mail  g:Get  j/k:Move  Space:Page",
             id="mail-help",
             classes="bar",
         )
@@ -55,13 +127,45 @@ class MailPane(Vertical):
         table.add_column("Date", width=12, key="date")
         table.add_column("From", width=16, key="from")
         table.add_column("Subject", key="subject")
+        self._fill_table()
+        self._timer = None
+        self._start_live()
+
+    def _start_live(self) -> None:
+        if not self.live:
+            return
+        self._state = "connecting..."
+        self._update_status()
+        self.refresh_mail()
+        interval = self.settings.mail_refresh_interval if self.settings else 0
+        if interval > 0 and self._timer is None:
+            self._timer = self.set_interval(max(60.0, interval), self.refresh_mail)
+
+    def reconfigure(self, settings: "Settings") -> None:
+        """New account settings (e.g. just unlocked from the vault)."""
+        self.settings = settings
+        mailbox = mailbox_from_settings(settings)
+        if mailbox is None:
+            return
+        self.mailbox = mailbox
+        self.messages = []
+        self.deleted.clear()
+        self._folder = "INBOX"
+        self._fill_table()
+        self._start_live()
+
+    # ----------------------------------------------------------------- render
+    def _fill_table(self) -> None:
+        table = self.query_one("#mail-index", DataTable)
+        table.clear()
         for i, msg in enumerate(self.messages):
             table.add_row(*self._row(i, msg), key=str(i))
         self._update_status()
         if self.messages:
             self._show(0)
+        else:
+            self.query_one("#mail-body", Static).update("")
 
-    # ----------------------------------------------------------------- render
     def _row(self, i: int, msg: MailMessage) -> tuple[Text, ...]:
         flags = msg.flags
         if i in self.deleted:
@@ -86,7 +190,10 @@ class MailPane(Vertical):
         total = len(self.messages)
         new = sum(1 for m in self.messages if m.new)
         flagged = sum(1 for m in self.messages if m.flagged)
-        status = f"-*-NeoMutt: =INBOX [Msgs:{total} New:{new} Flag:{flagged} Del:{len(self.deleted)}]"
+        status = (f"-*-NeoMutt: ={self._folder} [Msgs:{total} New:{new} Flag:{flagged} "
+                  f"Del:{len(self.deleted)}]")
+        if self._state:
+            status += f" {self._state} "
         self.query_one("#mail-status", Static).update(Text(status.ljust(200, "-"), STYLE_BAR))
 
     def _show(self, i: int) -> None:
@@ -94,7 +201,7 @@ class MailPane(Vertical):
         body = Text()
         for key, value in (
             ("Date", msg.date.strftime("%a, %d %b %Y %H:%M")),
-            ("From", msg.sender),
+            ("From", f"{msg.sender} <{msg.sender_address}>" if msg.sender_address else msg.sender),
             ("To", msg.to),
             ("Subject", msg.subject),
         ):
@@ -109,15 +216,59 @@ class MailPane(Vertical):
             Text(f"-NeoMutt: {msg.subject} [{i + 1}/{len(self.messages)}]".ljust(200, "-"), STYLE_BAR)
         )
 
+    # ----------------------------------------------------------------- server
+    @work(exclusive=True, group="mail-fetch", exit_on_error=False)
+    async def refresh_mail(self) -> None:
+        assert self.mailbox is not None
+        count = self.settings.mail_fetch_count if self.settings else 40
+        try:
+            messages = await asyncio.to_thread(self.mailbox.fetch, count)
+        except MailError as exc:
+            self._state = "offline"
+            self._update_status()
+            self.app.notify(str(exc), title="Mail", severity="error", timeout=10)
+            return
+        except Exception as exc:  # noqa: BLE001 - keep the tab alive
+            self._state = "offline"
+            self._update_status()
+            self.app.notify(f"{type(exc).__name__}: {exc}", title="Mail", severity="error", timeout=10)
+            return
+        self.messages = messages
+        self.deleted.clear()
+        self._state = ""
+        self._fill_table()
+
+    def _server(self, fn, *args, done: str = "") -> None:
+        """Run a blocking mailbox call off the UI thread; report failures."""
+        if self.mailbox is None:
+            return
+
+        async def job() -> None:
+            try:
+                await asyncio.to_thread(fn, *args)
+            except Exception as exc:  # noqa: BLE001
+                self.app.notify(str(exc), title="Mail", severity="error", timeout=10)
+                return
+            if done:
+                self.app.notify(done, title="Mail")
+
+        self.run_worker(job(), group="mail-write", exit_on_error=False)
+
     # ----------------------------------------------------------------- events
     @on(DataTable.RowHighlighted, "#mail-index")
     def _highlighted(self, event: DataTable.RowHighlighted) -> None:
-        if event.row_key.value is not None:
-            idx = int(event.row_key.value)
-            if self.messages[idx].new:
-                self.messages[idx].new = False
-                self._refresh_row(idx)
-            self._show(idx)
+        if event.row_key.value is None:
+            return
+        idx = int(event.row_key.value)
+        if idx >= len(self.messages):
+            return
+        msg = self.messages[idx]
+        if msg.new:
+            msg.new = False
+            self._refresh_row(idx)
+            if msg.uid:
+                self._server(self.mailbox.set_flag, msg.uid, "\\Seen", True)
+        self._show(idx)
 
     @property
     def _current(self) -> int:
@@ -128,19 +279,42 @@ class MailPane(Vertical):
         table.move_cursor(row=max(0, min(len(self.messages) - 1, table.cursor_row + delta)), animate=False)
 
     def action_toggle_delete(self) -> None:
+        if not self.messages:
+            return
         i = self._current
         self.deleted.symmetric_difference_update({i})
         self._refresh_row(i)
 
+    def action_sync_deletes(self) -> None:
+        """neomutt's '$': apply the D marks (Gmail: archive out of the INBOX)."""
+        if not self.deleted:
+            self.app.notify("Nothing marked for deletion (d).", title="Mail")
+            return
+        doomed = sorted(self.deleted)
+        if self.live:
+            uids = [self.messages[i].uid for i in doomed if self.messages[i].uid]
+            self._server(self.mailbox.expunge, uids, done=f"Removed {len(uids)} from INBOX.")
+        self.messages = [m for i, m in enumerate(self.messages) if i not in self.deleted]
+        self.deleted.clear()
+        self._fill_table()
+
     def action_toggle_flag(self) -> None:
+        if not self.messages:
+            return
         msg = self.messages[self._current]
         msg.flagged = not msg.flagged
         self._refresh_row(self._current)
+        if msg.uid:
+            self._server(self.mailbox.set_flag, msg.uid, "\\Flagged", msg.flagged)
 
     def action_toggle_new(self) -> None:
+        if not self.messages:
+            return
         msg = self.messages[self._current]
         msg.new = not msg.new
         self._refresh_row(self._current)
+        if msg.uid:
+            self._server(self.mailbox.set_flag, msg.uid, "\\Seen", not msg.new)
 
     def action_pager_page(self, direction: int) -> None:
         pager = self.query_one("#mail-pager", VerticalScroll)
@@ -149,9 +323,46 @@ class MailPane(Vertical):
         else:
             pager.scroll_page_up(animate=False)
 
+    def action_refresh(self) -> None:
+        if not self.live:
+            self.app.notify("Demo mailbox: set mail_address and mail_password in config.toml.",
+                            title="Mail")
+            return
+        self._state = "fetching..."
+        self._update_status()
+        self.refresh_mail()
+
     def action_reply(self) -> None:
-        msg = self.messages[self._current]
-        self.app.notify(f"Reply to {msg.sender}: compose is not wired to SMTP yet (mock).")
+        if not self.messages:
+            return
+        idx = self._current
+        msg = self.messages[idx]
+        subject = msg.subject if msg.subject.lower().startswith("re:") else f"Re: {msg.subject}"
+        to = msg.sender_address or msg.sender
+
+        def sent(result: tuple[str, str, str] | None) -> None:
+            if result is None:
+                return
+            if self._send(*result, in_reply_to=msg.message_id, references=msg.references):
+                msg.replied = True
+                self._refresh_row(idx)
+                if msg.uid:
+                    self._server(self.mailbox.set_flag, msg.uid, "\\Answered", True)
+
+        self.app.push_screen(ComposeScreen(to, subject, quote_reply(msg)), sent)
 
     def action_compose(self) -> None:
-        self.app.notify("Compose: mock mailbox — hook an SMTP/IMAP provider in mock_data.")
+        def sent(result: tuple[str, str, str] | None) -> None:
+            if result is not None:
+                self._send(*result)
+
+        self.app.push_screen(ComposeScreen(), sent)
+
+    def _send(self, to: str, subject: str, body: str, **headers: str) -> bool:
+        if not self.live:
+            self.app.notify("Demo mailbox: not sent. Set mail_address and mail_password in config.toml.",
+                            title="Mail", severity="warning")
+            return False
+        mailbox = self.mailbox
+        self._server(lambda: mailbox.send(to, subject, body, **headers), done=f"Sent to {to}.")
+        return True

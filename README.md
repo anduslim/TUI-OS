@@ -7,11 +7,11 @@ A text-mode "personal OS" for doing development from an **Onyx Boox Tab Ultra C*
 | Tab | Key | What it is |
 |-----|-----|------------|
 | 1 Shell    | `F1` / `Alt+1` | Plain SSH terminal on the Olares One: your login shell, or `tmux new -A -s main` |
-| 2 Mail     | `F2` / `Alt+2` | Index and pager split laid out like neomutt (mock mailbox) |
-| 3 Calendar | `F3` / `Alt+3` | Appointments, month view and TODO laid out like calcurse (mock data) |
+| 2 Mail     | `F2` / `Alt+2` | Gmail over IMAP/SMTP in a neomutt-style index and pager (mock mailbox until configured) |
+| 3 Calendar | `F3` / `Alt+3` | Read-only iCal feed (e.g. Google Calendar) laid out like calcurse (mock data until configured) |
 | 4 Browser  | `F4` / `Alt+4` | **APK:** native Android WebView restyled to the E-ink palette. **Desktop:** text viewport like w3m |
 | 5 K9s (Cluster) | `F5` / `Alt+5` | `k9s` on the Olares One over SSH, in an E-ink skin |
-| 6 LLM Terminal | `F6` / `Alt+6` | Prompt environment that streams from the Ollama server on the box (`/api/generate`) |
+| 6 LLM Terminal | `F6` / `Alt+6` | Prompt environment that streams from the LLM on the box (Ollama, or any OpenAI-compatible server) |
 
 On the Boox, F1–F6 and Alt+digit are taken by the system keyboard, so **tap a tab
 label** to switch tabs.
@@ -167,6 +167,66 @@ shows on the crash screen with its path.
 The default PromQL queries assume **node-exporter** (CPU temperature, network) and the
 **NVIDIA DCGM exporter** (GPU temperature, VRAM). If your box exposes different metric
 names, override them under `[queries]`. The panel lists any metric that returns no data.
+
+## Mail and Calendar tabs (Gmail, Google Calendar)
+
+Both tabs show demo data until you configure them in `config.toml` (the on-device
+override is the best place, so the secrets never go into a build):
+
+```toml
+mail_address = "you@gmail.com"
+mail_password = "abcd efgh ijkl mnop"   # Google app password, not your password
+mail_name = "Your Name"                 # optional, for the From: header
+ical_url = "https://calendar.google.com/calendar/ical/.../private-.../basic.ics"
+```
+
+* **Mail** reads the newest `mail_fetch_count` (40) INBOX messages over IMAP and
+  sends over SMTP, Gmail by default (`imap_host`, `imap_port`, `smtp_host`,
+  `smtp_port` change that; port 465 is TLS, others use STARTTLS). Create the
+  password at <https://myaccount.google.com/apppasswords>; it needs 2-Step
+  Verification. Keys: `g` fetch, `r` reply, `m` new mail (Ctrl+S sends, Esc
+  cancels), `f` flag, `N` toggle read, `d` mark and `$` apply. On Gmail `$`
+  archives the marked messages out of the INBOX, it does not trash them.
+  Opening a message marks it read on the server. Refreshes every
+  `mail_refresh_interval` seconds (300; 0 = only on `g`).
+* **Calendar** downloads the secret iCal address read-only (Google Calendar >
+  Settings > your calendar > *Secret address in iCal format*). Recurring events,
+  exceptions, moved instances and all-day events are shown; the right-hand box
+  lists the next 7 days. `g` reloads; it refreshes every
+  `calendar_refresh_interval` seconds (900). Anyone with the URL can read the
+  calendar, so treat it like a password.
+
+### Secrets from Vaultwarden (recommended)
+
+Instead of putting the app password and iCal URL in `config.toml`, keep them in a
+Vaultwarden (Bitwarden-compatible) server on the Olares One. The TUI then stores only
+the server address and your email, asks for the master password at launch, and keeps
+the decrypted values in memory. (The built-in Olares **Vault** app is based on Padloc
+and has no API the TUI can use, so it can't fill this role.)
+
+1. Install Vaultwarden on the Olares One (Market, or a custom app), create an
+   account in its web vault, and reach it from the tablet over Tailscale.
+2. Add a **Login** item named `TUI-OS`: username = your Gmail address, password =
+   the app password. Add a custom field (text or hidden) named `ical_url` with the
+   secret iCal address. Any other custom field named like a `config.toml` key
+   (`mail_name`, `imap_host`, ...) overrides that key too.
+3. In `config.toml`:
+
+   ```toml
+   vault_url = "https://vaultwarden.<you>.olares.com"   # or http://olares-one:<port>
+   vault_email = "you@example.com"
+   # vault_item = "TUI-OS"
+   ```
+
+At launch an **Unlock vault** prompt appears. Enter the master password, then a
+two-step login code if your account asks for one. Esc skips the vault and uses
+whatever `config.toml` holds, so plain values there still work as a fallback. To
+skip the code prompt, set `vault_client_id` / `vault_client_secret` from *Account
+settings > Security > Keys > View API key*; the master password is still needed to
+decrypt. Accounts using the PBKDF2 key derivation (Vaultwarden's default) work
+everywhere; Argon2id needs OpenSSL 3.2+ in the APK build. Only personal items are
+read, not items shared through an organization. The vault needs `cryptography`,
+which the APK already ships for the K9s tab.
 
 ## Browser tab (WebView) and Tailscale
 
@@ -415,8 +475,6 @@ skips it and starts the app.
 
 ## Roadmap
 
-* IMAP/SMTP provider for Mail and a CalDAV provider (e.g. Radicale on Olares) for
-  Calendar. Both tabs already read from `mock_data`-shaped objects.
 * A real PTY shell tab next to the LLM terminal.
 * An in-app settings screen for the host, model and k9s target (today: `android/config.toml` before building).
 * Keyboard-driven link hints in the WebView (like Vimium) for mouse-free navigation.
