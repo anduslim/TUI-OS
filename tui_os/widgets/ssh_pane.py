@@ -20,7 +20,8 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import Static
+from textual.css.query import NoMatches
+from textual.widgets import Static, TabbedContent, TabPane
 
 from ..config import Settings
 from ..services.ssh import SshTarget, SshTerminalSession, ensure_client_key
@@ -180,7 +181,23 @@ class SshPane(Vertical):
     def _set_state(self, state: str, error: str | None = None) -> None:
         self.state, self.error = state, error
         self._render_state()
-        self.app.call_after_refresh(lambda: self.focus_target.focus() if self.is_mounted else None)
+        self.app.call_after_refresh(self._focus_if_shown)
+
+    def _focus_if_shown(self) -> None:
+        """Focus our terminal or idle screen, but only while our tab is shown.
+
+        A connect that finishes (or fails) after the user moved to another tab
+        must not grab focus: TabbedContent would switch back to this tab.
+        """
+        if not self.is_mounted:
+            return
+        try:
+            pane = self.query_ancestor(TabPane)
+            tabs = self.query_ancestor(TabbedContent)
+        except NoMatches:
+            pane = tabs = None
+        if pane is None or tabs.active == pane.id:
+            self.focus_target.focus()
 
     # ----------------------------------------------------------- lifecycle
     def activate(self) -> None:

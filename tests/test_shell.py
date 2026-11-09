@@ -84,3 +84,31 @@ async def test_shell_tab_connects_at_start_and_passes_tmux_keys(ssh_server, sett
         await pilot.press("f2")  # app still owns tab keys
         await pilot.pause()
         assert app.query_one("#workspace").active == "mail"
+
+
+async def test_late_connect_failure_does_not_pull_focus_back(settings):
+    """Regression: a K9s connect that failed after the user had moved to
+    another tab focused the K9s idle screen, and TabbedContent jumped back."""
+    from tui_os.app import TuiOS
+    from tui_os.services.telemetry import DemoTelemetry
+
+    class SlowFailing:
+        def __init__(self, *_a):
+            pass
+
+        async def start(self, cols, rows):
+            await asyncio.sleep(0.3)
+            raise OSError("connection refused")
+
+        def write(self, data): ...
+        def resize(self, cols, rows): ...
+        async def close(self): ...
+
+    app = TuiOS(replace(settings, k9s_autoconnect=True), telemetry_source=DemoTelemetry(seed=1),
+                k9s_session_factory=SlowFailing)
+    async with app.run_test(size=(147, 46)) as pilot:
+        await pilot.press("f5")
+        await pilot.pause()
+        await pilot.press("f2")
+        await pilot.pause(0.6)  # the failure lands while Mail is shown
+        assert app.query_one("#workspace").active == "mail"
