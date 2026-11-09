@@ -86,7 +86,8 @@ class TerminalEmulator(Widget, can_focus=True):
 
     #: Keys the app keeps even while a remote program has focus: tab
     #: switching, the telemetry toggle, redraw and quit.
-    RESERVED = frozenset({"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+b", "ctrl+r", "ctrl+q"})
+    RESERVED = frozenset({"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+b", "ctrl+r", "ctrl+q",
+                          "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6"})
 
     class Resized(Message):
         def __init__(self, emulator: "TerminalEmulator", cols: int, rows: int) -> None:

@@ -82,6 +82,8 @@ def translate_keydown(
     base = char.lower()
     if ctrl and base.isalpha() and len(base) == 1:
         return NamedKey(f"ctrl+{base}", chr(ord(base) - 96))
+    if ctrl and base.isdigit() and len(base) == 1:
+        return NamedKey(f"ctrl+{base}")  # Ctrl+1..6 switch tabs (Boox takes F-keys and Alt)
     if alt:
         return NamedKey(f"alt+{base}")
     if shift:

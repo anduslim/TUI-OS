@@ -22,6 +22,8 @@ from tui_os.host.keymap import CharKey, NamedKey, translate_keydown
         (113, "q", ["ctrl"], NamedKey("ctrl+q", "\x11")),
         (283, None, [], NamedKey("f2")),
         (50, "2", ["alt"], NamedKey("alt+2")),
+        (49, "1", ["ctrl"], NamedKey("ctrl+1")),
+        (54, None, ["ctrl"], NamedKey("ctrl+6")),
         (27, None, [], NamedKey("escape", "\x1b")),
         (13, None, [], NamedKey("enter", "\r")),
         (9, None, ["shift"], NamedKey("shift+tab")),
@@ -105,7 +107,7 @@ def test_bridge_dirty_rows_carry_design_colours(bridge):
     used = {c for pair in colours for c in pair}
     assert used <= allowed, used - allowed
     title = rows[0][0]
-    assert title.text.strip() == "TUI-OS" and title.bg == "00FF00" and title.fg == "000000"
+    assert title.text.strip().startswith("TUI-OS ") and title.bg == "00FF00" and title.fg == "000000"
 
 
 def test_bridge_resize_and_tap(bridge):

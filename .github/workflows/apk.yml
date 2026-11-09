@@ -107,6 +107,8 @@ jobs:
           fi
           echo "APP_VERSION=$v" >> "$GITHUB_ENV"
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          # Shown in the title bar and on the start-up screen (tui_os/version.py).
+          printf 'VERSION = "%s"\n' "$v" > tui_os/_build_version.py
 
       - name: Signing key
         id: signing

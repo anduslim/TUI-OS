@@ -95,6 +95,8 @@ class TerminalView(Widget):
             Color(*_rgb(DEFAULT_BG))
             self._bg = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._on_geometry, size=self._on_geometry)
+        self._splash: InstructionGroup | None = None
+        self._splash_text = ""
         Clock.schedule_interval(self._poll, 1 / REFRESH_HZ)
 
     # ------------------------------------------------------------ geometry
@@ -107,6 +109,8 @@ class TerminalView(Widget):
         if grid.font_px != self.grid.font_px:
             self._textures.clear()
         self.grid = grid
+        if self._splash is not None:
+            self.show_splash(self._splash_text)  # re-centre
         self.bridge.resize(GRID_COLS, GRID_ROWS)
         self.full_redraw()
         if self.on_geometry is not None:
@@ -126,8 +130,32 @@ class TerminalView(Widget):
         return Window.height - self.top
 
     # ------------------------------------------------------------- painting
+    def show_splash(self, text: str) -> None:
+        """Centered start-up line (e.g. "TUI-OS 1.1.6 · starting…") until the
+        TUI paints its first frame."""
+        self.hide_splash()
+        self._splash_text = text
+        label = CoreLabel(text=text, font_size=max(18, self.grid.font_px * 2),
+                          font_name=self._fonts[True], color=_rgb("00FF00"))
+        label.refresh()
+        tex = label.texture
+        g = InstructionGroup()
+        g.add(Color(1, 1, 1, 1))
+        g.add(Rectangle(texture=tex, size=tex.size,
+                        pos=(self.center_x - tex.width / 2, self.center_y - tex.height / 2)))
+        self.canvas.after.add(g)
+        self._splash = g
+
+    def hide_splash(self) -> None:
+        if self._splash is not None:
+            self.canvas.after.remove(self._splash)
+            self._splash = None
+
     def _poll(self, _dt: float) -> None:
-        for y, runs in self.bridge.take_dirty_rows():
+        rows = self.bridge.take_dirty_rows()
+        if self._splash is not None and any(r.text.strip() for _, runs in rows for r in runs):
+            self.hide_splash()  # the TUI drew real content
+        for y, runs in rows:
             self._paint_row(y, runs)
 
     def _texture(self, text: str, fg: str, bold: bool):
@@ -242,6 +270,7 @@ class OlaresWorkspaceApp(App):
         self.bridge = TerminalBridge(self._make_tui, on_exit=self._tui_exited)
         self.view = TerminalView(self.bridge)
         self._chars = CharFallback()
+        self._swallow_text: tuple[str, float] | None = None
         self._pending_ev = None
         self._keyboard = None
         Window.bind(on_key_down=self._on_key_down, on_textinput=self._on_textinput)
@@ -250,6 +279,9 @@ class OlaresWorkspaceApp(App):
 
     # ----------------------------------------------------------- lifecycle
     def on_start(self) -> None:
+        from ..version import app_version
+
+        self.view.show_splash(f"TUI-OS {app_version()} · starting…")
         self.host = _android_host(self.bridge, self.view)
         if self.host is not None:
             self.view.on_geometry = self.host.relayout
@@ -349,6 +381,10 @@ class OlaresWorkspaceApp(App):
             return True
         if isinstance(action, NamedKey):
             self._cancel_pending()
+            # A Ctrl/Alt chord on a printable key must not also type that key
+            # if the platform sends a text event for it (e.g. Ctrl+1 -> "1").
+            base = action.key.rsplit("+", 1)[-1]
+            self._swallow_text = (base, Clock.get_time()) if len(base) == 1 and "+" in action.key else None
             self.bridge.send_key(action.key, action.character)
             return True
         if isinstance(action, CharKey):
@@ -362,6 +398,10 @@ class OlaresWorkspaceApp(App):
 
     def _on_textinput(self, _window, text: str) -> None:
         self._trace(f"textinput {text!r}")
+        swallow, self._swallow_text = self._swallow_text, None
+        if swallow and text.lower() == swallow[0] and Clock.get_time() - swallow[1] < 0.3:
+            self._trace(f"textinput {text!r} swallowed (part of a key chord)")
+            return
         self._cancel_pending()
         self._chars.text_input()
         self.bridge.send_text(text)

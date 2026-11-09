@@ -37,6 +37,7 @@ from .services.telemetry import (
     TelemetrySource,
 )
 from .theme import EINK_THEME
+from .version import app_version
 from .widgets.browser import BrowserPane
 from .widgets.calendar import CalendarPane
 from .widgets.k9s import K9sPane, SessionFactory
@@ -83,7 +84,7 @@ class TitleBar(Static):
             return
         self._last = stamp
         text = Text()
-        text.append(" TUI-OS ", "bold #000000 on #00FF00")
+        text.append(f" TUI-OS {app_version()} ", "bold #000000 on #00FF00")
         text.append(f"  olares://{self.host}", "bold #FFFFFF")
         right = f"{stamp} "
         text.append(" " * max(1, self.size.width - text.cell_len - len(right)))
@@ -104,12 +105,12 @@ class TuiOS(App[None]):
 
     BINDINGS = [
         Binding("ctrl+b", "toggle_telemetry", "Telemetry", priority=True),
-        Binding("f1,alt+1", "show_tab('shell')", "Shell", priority=True),
-        Binding("f2,alt+2", "show_tab('mail')", "Mail", priority=True),
-        Binding("f3,alt+3", "show_tab('calendar')", "Cal", priority=True),
-        Binding("f4,alt+4", "show_tab('browser')", "Web", priority=True),
-        Binding("f5,alt+5", "show_tab('k9s')", "K9s", priority=True),
-        Binding("f6,alt+6", "show_tab('terminal')", "LLM", priority=True),
+        Binding("ctrl+1,f1,alt+1", "show_tab('shell')", "Shell", priority=True),
+        Binding("ctrl+2,f2,alt+2", "show_tab('mail')", "Mail", priority=True),
+        Binding("ctrl+3,f3,alt+3", "show_tab('calendar')", "Cal", priority=True),
+        Binding("ctrl+4,f4,alt+4", "show_tab('browser')", "Web", priority=True),
+        Binding("ctrl+5,f5,alt+5", "show_tab('k9s')", "K9s", priority=True),
+        Binding("ctrl+6,f6,alt+6", "show_tab('terminal')", "LLM", priority=True),
         Binding("ctrl+r", "refresh_screen", "Redraw", priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True),
     ]

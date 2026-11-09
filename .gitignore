@@ -15,3 +15,4 @@ signing/
 *.jks
 keystore-password.txt
 crash.log
+tui_os/_build_version.py
