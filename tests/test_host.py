@@ -177,3 +177,22 @@ def test_box_glyphs_reach_cell_edges_and_join():
     assert cell_rects("▌", x0, y0, x1, y1, 2.0)[0][2] in (8, 9)
     assert cell_rects("A", x0, y0, x1, y1, 2.0) == []
     assert {"─", "│", "┏", "━", "╸", "█", "▁", "▊"} <= DRAWN and "·" not in DRAWN
+
+
+def test_bridge_reports_errors_textual_swallows():
+    """Textual catches exceptions from compose/mount, prints them to stderr
+    (invisible in an APK) and returns from run(); the bridge must still
+    surface the traceback so the host can show its crash screen."""
+    from textual.app import App
+
+    class Broken(App):
+        def compose(self):
+            raise ValueError("boom in compose")
+            yield  # pragma: no cover
+
+    exited = []
+    b = TerminalBridge(lambda dc: Broken(driver_class=dc), on_exit=exited.append)
+    b.start()
+    assert b.finished.wait(10) and exited == [b]
+    assert b.error is not None
+    assert "ValueError: boom in compose" in b.error
