@@ -294,7 +294,16 @@ Setup on the Olares One:
    user can read a kubeconfig. If it isn't `~/.kube/config`, set `k9s_kubeconfig`.
 2. Allow the tablet to log in. Either:
    * open the Shell or K9s tab once: it shows the **device public key** (generated on the
-     tablet on first use), which you add to `~/.ssh/authorized_keys`; or
+     tablet on first use), which you add to `~/.ssh/authorized_keys`. Don't type
+     it off the screen: the app also writes it where adb can read it, so copy it
+     exactly from a computer with the tablet on USB:
+
+     ```sh
+     adb pull /sdcard/Android/data/org.olares.olares_workspace_tui/files/device_key.pub
+     ssh-copy-id -f -i device_key.pub olares@olares-one   # or append it by hand
+     ```
+
+     or
    * enable **Tailscale SSH** on the node (`tailscale set --ssh`). No keys are
      needed; the tailnet identity is used.
 3. In `android/config.toml` (or `~/.config/tui-os/config.toml`):

@@ -114,3 +114,16 @@ async def test_late_connect_failure_does_not_pull_focus_back(settings):
         await pilot.press("f2")
         await pilot.pause(0.6)  # the failure lands while Mail is shown
         assert app.query_one("#workspace").active == "mail"
+
+
+def test_public_key_is_exported_next_to_the_config_override(tmp_path, monkeypatch):
+    from tui_os.services.ssh import ensure_client_key, export_public_key
+
+    pub = ensure_client_key(tmp_path / "private" / "id_ed25519")
+    monkeypatch.delenv("TUI_OS_CONFIG_OVERRIDE", raising=False)
+    assert export_public_key(pub) is None  # desktop: nowhere to export to
+    monkeypatch.setenv("TUI_OS_CONFIG_OVERRIDE", str(tmp_path / "external" / "config.toml"))
+    path = export_public_key(pub)
+    assert path == tmp_path / "external" / "device_key.pub"
+    assert path.read_text() == pub + "\n"
+    assert not (tmp_path / "external" / "id_ed25519").exists()  # never the private key

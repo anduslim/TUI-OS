@@ -24,7 +24,7 @@ from textual.css.query import NoMatches
 from textual.widgets import Static, TabbedContent, TabPane
 
 from ..config import Settings
-from ..services.ssh import SshTarget, SshTerminalSession, ensure_client_key
+from ..services.ssh import SshTarget, SshTerminalSession, ensure_client_key, export_public_key
 from .term_emulator import TerminalEmulator
 
 STYLE_BAR = "bold #FFFFFF on #0000FF"
@@ -76,6 +76,7 @@ class SshPane(Vertical):
         self.session: TerminalSession | None = None
         self.state = "idle"
         self.public_key = ""
+        self.exported_key = None
         self.error: str | None = None
         self._activated = False
         self._closing = False
@@ -112,6 +113,7 @@ class SshPane(Vertical):
         self.query_one(TerminalEmulator).display = False
         try:
             self.public_key = ensure_client_key(self.target.key_path)
+            self.exported_key = export_public_key(self.public_key)
         except ImportError as exc:  # native cryptography failed to load on this device
             self.public_key = "(unavailable)"
             self.state, self.error = "error", f"SSH is unavailable on this device: {exc}"
@@ -169,7 +171,11 @@ class SshPane(Vertical):
         text.append("\n\n")
         text.append("Device key", "bold #00FF00")
         text.append(" (add to ~/.ssh/authorized_keys on the node):\n", "#FFFFFF")
-        text.append(f"{self.public_key}\n\n", "#FFFFFF")
+        text.append(f"{self.public_key}\n", "#FFFFFF")
+        if self.exported_key is not None:
+            text.append("Copy it exactly with: ", "#FFFFFF")
+            text.append(f"adb pull {self._adb_path(self.exported_key)}\n", "bold #00FF00")
+        text.append("\n")
         text.append("Using Tailscale SSH on the node? No key needed.\n", "#FFFFFF")
         text.append(f"Host key: trusted on first use, pinned in {t.known_hosts_path}\n", "#FFFFFF")
         self.idle_footer(text)
@@ -177,6 +183,11 @@ class SshPane(Vertical):
 
     def idle_footer(self, text: Text) -> None:
         """Extra lines at the end of the idle screen."""
+
+    @staticmethod
+    def _adb_path(path) -> str:
+        """/storage/emulated/0/... is /sdcard/... to adb."""
+        return str(path).replace("/storage/emulated/0/", "/sdcard/", 1)
 
     def _set_state(self, state: str, error: str | None = None) -> None:
         self.state, self.error = state, error
