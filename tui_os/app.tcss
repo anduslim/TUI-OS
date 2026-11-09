@@ -384,3 +384,38 @@ Toast.-warning {
 Toast.-error {
     border-left: thick $eink-red;
 }
+
+/* ---- compose / vault unlock (modal screens) ----------------------------- */
+ComposeScreen, UnlockScreen {
+    align: center middle;
+    background: $eink-bg;  /* solid: a translucent overlay ghosts on E-ink */
+}
+
+#compose-box {
+    width: 100%;
+    height: 100%;
+    background: $eink-bg;
+}
+
+#compose-body {
+    height: 1fr;
+    background: $eink-bg;
+    color: $eink-fg;
+}
+
+#unlock-box {
+    width: 64;
+    height: auto;
+    border: heavy $eink-fg;
+    background: $eink-bg;
+    padding: 0 1 1 1;
+}
+
+#unlock-info, #unlock-status {
+    color: $eink-fg;
+    background: $eink-bg;
+}
+
+#unlock-status {
+    margin-top: 1;
+}
