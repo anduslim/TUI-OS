@@ -109,9 +109,13 @@ def test_override_file_wins_over_bundled_config(tmp_path, monkeypatch):
     monkeypatch.setenv("LLM_MODEL", "qwen")  # env still beats files
     assert Settings.load(bundled).resolved_llm_model == "qwen"
 
+    # A broken override no longer crashes the app: it is skipped and reported.
+    from tui_os import config
+
     override.write_text('llm_api = "openai\n')
-    with pytest.raises(ValueError, match="invalid TOML in .*external"):
-        Settings.load(bundled)
+    s = Settings.load(bundled)
+    assert s.resolved_llm_api == "ollama"  # bundled values, override ignored
+    assert any("invalid TOML in" in w and "external" in w for w in config.LOAD_WARNINGS)
 
 
 async def test_terminal_tab_chats_over_openai(settings):

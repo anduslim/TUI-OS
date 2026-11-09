@@ -214,11 +214,17 @@ class Settings:
     # ------------------------------------------------------------------ loading
     @classmethod
     def load(cls, path: Path | None = None, **overrides: Any) -> "Settings":
+        LOAD_WARNINGS.clear()
         settings = cls()
         settings = settings._merge(_read_toml(path or default_config_path()))
         override = os.environ.get("TUI_OS_CONFIG_OVERRIDE")
         if override:
-            settings = settings._merge(_read_toml(Path(override).expanduser()))
+            # The on-device override is hand-edited: a typo there must not
+            # stop the app. Skip the file and say why at start instead.
+            try:
+                settings = settings._merge(_read_toml(Path(override).expanduser()))
+            except ValueError as exc:
+                LOAD_WARNINGS.append(f"{exc}. Ignored that file; using the bundled settings.")
         settings = settings._merge(_read_env())
         settings = settings._merge({k: v for k, v in overrides.items() if v is not None})
         return settings
@@ -247,15 +253,48 @@ def _coerce(value: Any, target: type) -> Any:
     return value
 
 
+#: Problems found while loading config files; the app shows them at start.
+LOAD_WARNINGS: list[str] = []
+
+
 def _read_toml(path: Path) -> dict[str, Any]:
     try:
         with path.open("rb") as fh:
-            return tomllib.load(fh)
+            data = tomllib.load(fh)
     except FileNotFoundError:
         return {}
     except tomllib.TOMLDecodeError as exc:
         # Shown on the crash screen; name the file so a bad `adb push` is obvious.
         raise ValueError(f"invalid TOML in {path}: {exc}") from exc
+    return _hoist_misplaced(data, path)
+
+
+def _hoist_misplaced(data: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Rescue settings written below the ``[queries]`` table.
+
+    In TOML every ``key = value`` after a ``[table]`` header belongs to that
+    table, so a line like ``ical_url = "..."`` appended at the end of the
+    file silently became a PromQL query. Move known setting names back to
+    the top level (unless the top level already sets them) and say so.
+    """
+    queries = data.get("queries")
+    if not isinstance(queries, dict):
+        return data
+    settings_keys = {f.name for f in fields(Settings)} - {"queries"}
+    moved = [k for k in queries if k in settings_keys and k not in DEFAULT_QUERIES]
+    if not moved:
+        return data
+    data = dict(data)
+    queries = dict(queries)
+    for key in moved:
+        value = queries.pop(key)
+        data.setdefault(key, value)
+    data["queries"] = queries
+    LOAD_WARNINGS.append(
+        f"{path.name}: {', '.join(moved)} sit below [queries]; used them as settings. "
+        "Move them above the [queries] line."
+    )
+    return data
 
 
 _ENV_MAP = {

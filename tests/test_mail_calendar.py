@@ -219,3 +219,64 @@ async def test_mail_pane_reconfigure_switches_from_demo(make_app, monkeypatch):
         pane.reconfigure(Settings(mail_address="a@b", mail_password="p", mail_refresh_interval=0))
         assert await _until(pilot, lambda: [m.subject for m in pane.messages] == ["Hello", "Lunch?"])
         assert pane.live
+
+
+def test_settings_below_queries_table_are_rescued(tmp_path):
+    from tui_os import config
+
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        'olares_host = "100.64.0.1"\n'
+        'ical_url = "https://top.example/a.ics"\n'
+        "[queries]\n"
+        "net_rx = 'sum(rx)'\n"
+        'vault_url = "https://vault.example/"\n'
+        'vault_email = "a@b.c"\n'
+        'ical_url = "https://ignored.example/b.ics"\n'
+    )
+    s = Settings.load(cfg)
+    assert s.vault_url == "https://vault.example/" and s.vault_email == "a@b.c"
+    assert s.ical_url == "https://top.example/a.ics"  # top level wins
+    assert "vault_url" not in s.queries and s.queries["net_rx"] == "sum(rx)"
+    assert len(config.LOAD_WARNINGS) == 1
+    assert "vault_url, vault_email, ical_url" in config.LOAD_WARNINGS[0]
+    # A clean file leaves no warning behind.
+    cfg.write_text('[queries]\nnet_rx = "x"\n')
+    Settings.load(cfg)
+    assert config.LOAD_WARNINGS == []
+
+
+async def test_google_embed_link_gets_a_clear_error():
+    import pytest
+
+    from tui_os.services.ical import CalendarError
+
+    cal = ICalCalendar("https://calendar.google.com/calendar/embed?src=x%40gmail.com&ctz=Asia/Singapore")
+    with pytest.raises(CalendarError, match="Secret address in iCal format"):
+        await cal.fetch()
+
+
+def test_broken_override_file_is_skipped_not_fatal(tmp_path, monkeypatch):
+    from tui_os import config
+
+    base = tmp_path / "base.toml"
+    base.write_text('olares_host = "10.0.0.1"\n')
+    bad = tmp_path / "config.toml"
+    bad.write_text('ical_url = "https://x/a.ics" style="border: 0"\n')  # pasted iframe junk
+    monkeypatch.setenv("TUI_OS_CONFIG_OVERRIDE", str(bad))
+    s = Settings.load(base)
+    assert s.olares_host == "10.0.0.1" and s.ical_url == ""
+    assert len(config.LOAD_WARNINGS) == 1
+    assert "invalid TOML" in config.LOAD_WARNINGS[0] and "line 1" in config.LOAD_WARNINGS[0]
+
+
+async def test_config_warnings_show_as_toasts(make_app, monkeypatch):
+    from tui_os import config
+
+    monkeypatch.setattr(config, "LOAD_WARNINGS", ["config.toml: bad line"])
+    import tui_os.app as app_mod
+    monkeypatch.setattr(app_mod, "LOAD_WARNINGS", config.LOAD_WARNINGS)
+    app = make_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        await pilot.pause()
+        assert any("bad line" in n.message for n in app._notifications)

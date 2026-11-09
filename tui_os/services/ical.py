@@ -321,12 +321,19 @@ class ICalCalendar:
                  past_days: int = 90, future_days: int = 400) -> None:
         # Google shows webcal:// links in some places; it is plain https.
         self.url = re.sub(r"^webcal://", "https://", url.strip(), flags=re.I)
+        self._url_problem = ""
+        if re.search(r"calendar\.google\.com/calendar/(embed|u/\d+/r|r)\b", self.url):
+            self._url_problem = (
+                "ical_url is Google's embed/web link. Use Settings > your calendar > "
+                "Integrate calendar > \"Secret address in iCal format\" (ends in .ics).")
         self._transport = transport
         self.past_days = past_days
         self.future_days = future_days
 
     async def fetch(self, today: dt.date | None = None) -> dict[dt.date, list[Appointment]]:
         today = today or dt.date.today()
+        if self._url_problem:
+            raise CalendarError(self._url_problem)
         try:
             async with httpx.AsyncClient(transport=self._transport, timeout=30.0,
                                          follow_redirects=True) as client:
