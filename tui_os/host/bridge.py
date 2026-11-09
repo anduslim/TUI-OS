@@ -2,18 +2,23 @@
 
 Textual normally talks to a TTY: it writes ANSI escape sequences to stdout
 and parses key bytes from stdin. An Android app process has no TTY, so this
-module puts a small virtual terminal in the middle:
+module puts a small virtual screen in the middle:
 
-    Textual App ──write(ANSI)──▶ EmbeddedDriver ──▶ pyte.Screen (cell grid)
+    Textual App ──compositor updates──▶ CellGrid ──▶ styled runs per row
          ▲                                              │
          │ events.Key / Resize / Mouse                  ▼ dirty rows
     TerminalBridge ◀── keys / taps / size ──── host UI (Kivy TerminalView)
 
 * The Textual app runs on its own thread with its own asyncio loop, exactly
   as it would in a terminal; the host's UI thread never blocks on it.
-* Output is fed into a ``pyte`` screen under a lock. The host polls
-  :meth:`TerminalBridge.take_dirty_rows` and redraws only rows that changed,
-  which suits E-ink.
+* Screen updates skip the terminal round trip: the app's ``_display`` is
+  wrapped so the compositor's segments go straight into a
+  :class:`~tui_os.host.cells.CellGrid` instead of being encoded as ANSI and
+  parsed back (that round trip used to be half the app thread's CPU). The
+  app thread also turns the changed rows into styled runs. The host polls
+  :meth:`TerminalBridge.take_dirty_rows`, which only swaps a dict under a
+  short lock, so the UI thread never waits for terminal parsing. Rows whose
+  content did not actually change are dropped, which suits E-ink.
 * Input is posted onto the app's loop with ``call_soon_threadsafe``.
 
 Nothing here imports Kivy, so the whole pipeline is testable on a desktop.
@@ -26,7 +31,6 @@ import os
 import threading
 import traceback
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 # Must be set before Textual is imported: emit 24-bit colour so the exact
@@ -34,38 +38,17 @@ from typing import TYPE_CHECKING, Any
 os.environ.setdefault("TEXTUAL_COLOR_SYSTEM", "truecolor")
 os.environ.setdefault("COLORTERM", "truecolor")
 
-import pyte  # noqa: E402
 from textual import events  # noqa: E402
+from textual._compositor import CompositorUpdate  # noqa: E402
 from textual._xterm_parser import XTermParser  # noqa: E402
 from textual.driver import Driver  # noqa: E402
 from textual.geometry import Size  # noqa: E402
 from textual.keys import _character_to_key  # noqa: E402
 
+from .cells import DEFAULT_BG, DEFAULT_FG, CellGrid, Run  # noqa: E402,F401 - Run re-exported
+
 if TYPE_CHECKING:
     from textual.app import App
-
-DEFAULT_FG = "FFFFFF"
-DEFAULT_BG = "000000"
-
-# pyte reports SGR 30-37/90-97 colours by name. The app emits truecolor, so
-# these only appear if something prints raw ANSI; map them to the six tokens.
-_NAMED = {
-    "black": "000000", "red": "FF0000", "green": "00FF00", "brown": "FFFF00",
-    "yellow": "FFFF00", "blue": "0000FF", "magenta": "FF0000", "cyan": "00FF00",
-    "white": "FFFFFF", "brightblack": "000000", "brightred": "FF0000",
-    "brightgreen": "00FF00", "brightbrown": "FFFF00", "brightyellow": "FFFF00",
-    "brightblue": "0000FF", "brightmagenta": "FF0000", "brightcyan": "00FF00",
-    "brightwhite": "FFFFFF",
-}
-
-
-def _colour(value: str, default: str) -> str:
-    if not value or value == "default":
-        return default
-    if len(value) == 6 and all(c in "0123456789abcdefABCDEF" for c in value):
-        return value.upper()
-    return _NAMED.get(value, default)
-
 
 def _swallowed_error(app: "App[Any]") -> str | None:
     """The traceback of an exception Textual caught and exited on.
@@ -82,19 +65,6 @@ def _swallowed_error(app: "App[Any]") -> str | None:
     return f"The app exited with return code {app.return_code}."
 
 
-@dataclass(frozen=True)
-class Run:
-    """A horizontal span of cells sharing one style."""
-
-    col: int
-    text: str
-    fg: str  # RRGGBB
-    bg: str  # RRGGBB
-    bold: bool = False
-    underline: bool = False
-    italic: bool = False
-
-
 class EmbeddedDriver(Driver):
     """Textual driver whose 'terminal' is a :class:`TerminalBridge`.
 
@@ -104,7 +74,11 @@ class EmbeddedDriver(Driver):
     bridge: "TerminalBridge"
 
     def write(self, data: str) -> None:
-        self.bridge._feed_output(data)
+        # Screen content arrives through the wrapped App._display (see
+        # TerminalBridge._hook_display); what is left here is terminal
+        # housekeeping (mouse modes, sync markers, cursor), which has no
+        # meaning without a terminal.
+        pass
 
     def start_application_mode(self) -> None:
         loop = asyncio.get_running_loop()
@@ -133,9 +107,15 @@ class TerminalBridge:
     ) -> None:
         self._app_factory = app_factory
         self._on_exit = on_exit
+        #: Guards the cell grid (written on the app thread).
         self._lock = threading.Lock()
-        self._screen = pyte.Screen(cols, rows)
-        self._stream = pyte.Stream(self._screen)
+        #: Guards ``_pending`` only; the host's UI thread takes just this one.
+        self._out_lock = threading.Lock()
+        #: Rows ready for the host: y -> runs. Newer frames overwrite older.
+        self._pending: dict[int, list[Run]] = {}
+        #: Last runs published per row, to drop rows that didn't change.
+        self._published: dict[int, list[Run]] = {}
+        self._grid = CellGrid(cols, rows)
         self._driver: EmbeddedDriver | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._parser = XTermParser(False)
@@ -149,7 +129,7 @@ class TerminalBridge:
     @property
     def size(self) -> tuple[int, int]:
         with self._lock:
-            return self._screen.columns, self._screen.lines
+            return self._grid.cols, self._grid.rows
 
     def driver_class(self) -> type[EmbeddedDriver]:
         return type("BoundEmbeddedDriver", (EmbeddedDriver,), {"bridge": self})
@@ -163,6 +143,7 @@ class TerminalBridge:
     def _run(self) -> None:
         try:
             self.app = self._app_factory(self.driver_class())
+            self._hook_display(self.app)
             self.app.run()
             self.error = self.error or _swallowed_error(self.app)
         except BaseException:  # noqa: BLE001 - surface any crash to the host
@@ -189,49 +170,70 @@ class TerminalBridge:
         self._driver = None
 
     # -------------------------------------------------------------- output
-    def _feed_output(self, data: str) -> None:
-        with self._lock:
-            self._stream.feed(data)
+    def _hook_display(self, app: "App[Any]") -> None:
+        """Route compositor updates into the cell grid instead of ANSI text."""
+        original = app._display
+
+        def display(screen, renderable) -> None:
+            if not isinstance(renderable, CompositorUpdate):
+                original(screen, renderable)
+                return
+            if getattr(app, "_batch_count", 0) or getattr(app, "_closed", False):
+                return
+            try:
+                with self._lock:
+                    self._grid.apply(renderable)
+                    self._collect(force=False)
+            except Exception as error:  # noqa: BLE001 - report like Textual would
+                app._handle_exception(error)
+
+        app._display = display  # type: ignore[method-assign]
+
+    def _collect(self, *, force: bool) -> None:
+        """Turn the grid's dirty rows into runs and queue them for the host.
+
+        Called with ``_lock`` held, on whichever thread changed the screen
+        (normally the app thread), so the host's UI thread never pays for it.
+        """
+        grid = self._grid
+        rows = [y for y in grid.dirty if y < grid.rows]
+        grid.dirty.clear()
+        if not rows:
+            return
+        published = self._published
+        ready: dict[int, list[Run]] = {}
+        for y in rows:
+            runs = grid.row_runs(y)
+            if force or published.get(y) != runs:
+                published[y] = runs
+                ready[y] = runs
+        if ready:
+            with self._out_lock:
+                self._pending.update(ready)
 
     def take_dirty_rows(self) -> list[tuple[int, list[Run]]]:
-        """Rows changed since the last call, as styled runs. Clears the set."""
-        with self._lock:
-            rows = sorted(y for y in self._screen.dirty if y < self._screen.lines)
-            self._screen.dirty.clear()
-            return [(y, self._row_runs(y)) for y in rows]
+        """Rows changed since the last call, as styled runs. Clears the set.
+
+        Cheap: the runs were built on the app thread; this only swaps a dict.
+        """
+        with self._out_lock:
+            pending, self._pending = self._pending, {}
+        lines = self._grid.rows
+        return sorted(((y, r) for y, r in pending.items() if y < lines), key=lambda item: item[0])
+
+    def has_dirty_rows(self) -> bool:
+        return bool(self._pending)
 
     def mark_all_dirty(self) -> None:
+        """Queue every row for repainting (after a host redraw or resume)."""
         with self._lock:
-            self._screen.dirty.update(range(self._screen.lines))
+            self._grid.dirty.update(range(self._grid.rows))
+            self._collect(force=True)
 
     def text_lines(self) -> list[str]:
         """Plain-text screen contents (for tests and logs)."""
         with self._lock:
-            return list(self._screen.display)
-
-    def _row_runs(self, y: int) -> list[Run]:
-        line = self._screen.buffer[y]
-        runs: list[Run] = []
-        cur_key: tuple[Any, ...] | None = None
-        start = 0
-        chars: list[str] = []
-        for x in range(self._screen.columns):
-            ch = line[x]
-            if ch.data == "":  # right half of a wide character
-                continue
-            fg = _colour(ch.fg, DEFAULT_FG)
-            bg = _colour(ch.bg, DEFAULT_BG)
-            if ch.reverse:
-                fg, bg = bg, fg
-            key = (fg, bg, ch.bold, ch.underscore, ch.italics)
-            if key != cur_key:
-                if cur_key is not None:
-                    runs.append(Run(start, "".join(chars), *cur_key))
-                cur_key, start, chars = key, x, []
-            chars.append(ch.data)
-        if cur_key is not None:
-            runs.append(Run(start, "".join(chars), *cur_key))
-        return runs
+            return self._grid.text_lines()
 
     # --------------------------------------------------------------- input
     def _dispatch(self, event: events.Event) -> bool:
@@ -284,9 +286,10 @@ class TerminalBridge:
     def resize(self, cols: int, rows: int) -> None:
         cols, rows = max(20, cols), max(8, rows)
         with self._lock:
-            if (cols, rows) == (self._screen.columns, self._screen.lines):
+            if (cols, rows) == (self._grid.cols, self._grid.rows):
                 return
-            self._screen.resize(rows, cols)
-            self._screen.dirty.update(range(rows))
+            self._grid.resize(cols, rows)
+            self._published.clear()
+            self._collect(force=True)
         size = Size(cols, rows)
         self._dispatch(events.Resize(size, size))

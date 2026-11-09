@@ -26,6 +26,7 @@ Only personal items are read; items owned by an organization are skipped.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -171,8 +172,10 @@ class VaultClient:
                 _raise_for(pre, "prelogin")
                 p = _lower_keys(pre.json())
                 kdf = int(p.get("kdf", KDF_PBKDF2))
-                master_key = make_master_key(
-                    password, cfg.email, kdf, int(p.get("kdfiterations") or 600000),
+                # 600k PBKDF2 rounds (or Argon2) take seconds on the Boox: run
+                # them on a worker thread so the UI keeps drawing meanwhile.
+                master_key = await asyncio.to_thread(
+                    make_master_key, password, cfg.email, kdf, int(p.get("kdfiterations") or 600000),
                     p.get("kdfmemory"), p.get("kdfparallelism"),
                 )
                 form = {

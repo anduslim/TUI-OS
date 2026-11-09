@@ -107,12 +107,15 @@ class CalendarPane(Vertical):
     async def refresh_calendar(self) -> None:
         assert self.source is not None
         try:
-            self._by_day = await self.source.fetch(dt.date.today())
+            by_day = await self.source.fetch(dt.date.today())
         except Exception as exc:  # noqa: BLE001 - keep the tab alive, show why
             self._state = "offline"
             self._render_all()
             self.app.notify(str(exc), title="Calendar", severity="error", timeout=10)
             return
+        if by_day == self._by_day and not self._state:
+            return  # periodic refresh, nothing changed: no repaint
+        self._by_day = by_day
         self._state = ""
         self._render_all()
 

@@ -24,7 +24,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.driver import Driver
 from textual.message import Message
-from textual.widgets import Footer, Static, TabbedContent, TabPane
+from textual.widgets import Static, TabbedContent, TabPane
 
 from .config import Settings
 from .services.ollama import OllamaClient
@@ -47,6 +47,7 @@ from .widgets.mail import MailPane
 from .widgets.telemetry_panel import TelemetryPanel
 from .widgets.terminal import TerminalPane
 from .widgets.unlock import UnlockScreen
+from .widgets.footer import KeyBar
 from .services.vault import VaultClient, VaultConfig
 
 TABS = ("shell", "mail", "calendar", "browser", "k9s", "terminal")
@@ -88,7 +89,7 @@ class TitleBar(Static):
         right = f"{stamp} "
         text.append(" " * max(1, self.size.width - text.cell_len - len(right)))
         text.append(right, "bold #FFFFFF")
-        self.update(text)
+        self.update(text, layout=False)  # one fixed row: no relayout
 
     def on_resize(self) -> None:
         self._last = ""
@@ -180,7 +181,7 @@ class TuiOS(App[None]):
                         system_prompt=self.settings.ollama_system_prompt,
                         id="terminal-pane",
                     )
-        yield Footer(compact=True)
+        yield KeyBar(id="keybar")
 
     def on_mount(self) -> None:
         self.register_theme(EINK_THEME)

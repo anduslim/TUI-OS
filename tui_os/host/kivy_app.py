@@ -9,6 +9,11 @@ E-ink behaviour:
 * Rows are repainted only when the bridge reports them dirty. Kivy only
   redraws the GL surface when canvas instructions change, so an idle TUI
   leaves the panel untouched.
+* Text comes from a glyph atlas (:mod:`.atlas`) and each row is a handful of
+  meshes, so the canvas stays small and a new screen renders few glyphs.
+* Painting stops after ``PAINT_BUDGET_S`` per frame and resumes on the next
+  one, so a full-screen change can never hold the UI thread long enough
+  for Android to call the app unresponsive.
 * A vertical swipe sends PgUp/PgDn (page-based navigation) instead of
   scrolling smoothly.
 """
@@ -33,12 +38,13 @@ Config.set("input", "mouse", "mouse,disable_multitouch")
 
 from kivy.app import App  # noqa: E402
 from kivy.clock import Clock  # noqa: E402
-from kivy.core.text import Label as CoreLabel  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
-from kivy.graphics import Color, InstructionGroup, Rectangle  # noqa: E402
+from kivy.graphics import Color, InstructionGroup, Mesh, Rectangle  # noqa: E402
 from kivy.uix.widget import Widget  # noqa: E402
 from kivy.utils import platform  # noqa: E402
+from rich.cells import cell_len, get_character_cell_size  # noqa: E402
 
+from .atlas import AtlasFull, GlyphAtlas  # noqa: E402
 from .bridge import DEFAULT_BG, Run, TerminalBridge  # noqa: E402
 from .glyphs import DRAWN, cell_rects  # noqa: E402
 from .grid import GRID_COLS, GRID_ROWS, GridGeometry  # noqa: E402
@@ -68,14 +74,42 @@ OVERRIDE_HEADER = """\
 """
 
 REFRESH_HZ = 20
+#: Most UI-thread time spent painting rows in one frame; the rest waits for
+#: the next frame. Android declares an app unresponsive after 5 s.
+PAINT_BUDGET_S = 0.03
+#: Printable ASCII, pre-rendered into the atlas while the UI is idle.
+WARM_GLYPHS = [chr(c) for c in range(33, 127)]
 SWIPE_ROWS = 3
 #: Hold a finger this long (seconds) without moving to paste the clipboard.
 LONG_PRESS_S = 0.6
 TEXT_FALLBACK_DELAY = 0.06
 
 
+_RGB: dict[str, tuple[float, float, float, float]] = {}
+
+
 def _rgb(hex6: str) -> tuple[float, float, float, float]:
-    return (int(hex6[0:2], 16) / 255, int(hex6[2:4], 16) / 255, int(hex6[4:6], 16) / 255, 1.0)
+    rgb = _RGB.get(hex6)
+    if rgb is None:
+        rgb = _RGB[hex6] = (int(hex6[0:2], 16) / 255, int(hex6[2:4], 16) / 255, int(hex6[4:6], 16) / 255, 1.0)
+    return rgb
+
+
+class _Quads:
+    """Vertices and indices for one mesh (x, y, u, v per vertex)."""
+
+    __slots__ = ("vertices", "indices")
+
+    def __init__(self) -> None:
+        self.vertices: list[float] = []
+        self.indices: list[int] = []
+
+    def add(self, x0: float, y0: float, x1: float, y1: float,
+            u0: float = 0.0, v0: float = 0.0, u1: float = 0.0, v1: float = 0.0) -> None:
+        """Quad from (x0, y0) bottom-left to (x1, y1) top-right; v0 maps to the top."""
+        i = len(self.vertices) // 4
+        self.vertices.extend((x0, y0, u0, v1, x1, y0, u1, v1, x1, y1, u1, v0, x0, y1, u0, v0))
+        self.indices.extend((i, i + 1, i + 2, i + 2, i + 3, i))
 
 
 class TerminalView(Widget):
@@ -85,10 +119,15 @@ class TerminalView(Widget):
         super().__init__(**kw)
         self.bridge = bridge
         self.on_geometry = None  # set by the app: re-place native overlays
+        self.trace = None  # set by the app when debug_input is on
         self.grid = GridGeometry.fit(1, 1)
         self._fonts = {False: str(FONT_REGULAR), True: str(FONT_BOLD)}
         self._rows: dict[int, InstructionGroup] = {}
-        self._textures: dict[tuple[str, str, bool], object] = {}
+        self._atlas: GlyphAtlas | None = None
+        #: Rows waiting to be painted (newest runs win), when a frame ran out
+        #: of budget.
+        self._backlog: dict[int, list[Run]] = {}
+        self._warm: list[tuple[str, bool]] = []
         self._touch_start: tuple[float, float] | None = None
         self._touch_t0 = 0.0
         with self.canvas.before:
@@ -105,7 +144,7 @@ class TerminalView(Widget):
         self._bg.pos, self._bg.size = self.pos, self.size
         grid = GridGeometry.fit(self.width, self.height)
         if grid.font_px != self.grid.font_px:
-            self._textures.clear()
+            self._atlas = None  # glyph size changed: re-render on demand
         self.grid = grid
         self.bridge.resize(GRID_COLS, GRID_ROWS)
         self.full_redraw()
@@ -116,6 +155,7 @@ class TerminalView(Widget):
         for group in self._rows.values():
             self.canvas.remove(group)
         self._rows.clear()
+        self._backlog.clear()
         self.bridge.mark_all_dirty()
 
     def cell_at(self, x: float, y: float) -> tuple[int, int]:
@@ -128,68 +168,102 @@ class TerminalView(Widget):
     # ------------------------------------------------------------- painting
     def _poll(self, _dt: float) -> None:
         for y, runs in self.bridge.take_dirty_rows():
-            self._paint_row(y, runs)
+            self._backlog[y] = runs
+        started = time.perf_counter()
+        deadline = started + PAINT_BUDGET_S
+        if self._backlog:
+            painted = 0
+            for y in sorted(self._backlog):
+                painted += 1
+                runs = self._backlog.pop(y)
+                try:
+                    self._paint_row(y, runs)
+                except AtlasFull:
+                    # Thousands of distinct glyphs: start a fresh atlas and
+                    # repaint everything from it.
+                    self._atlas = None
+                    self.full_redraw()
+                    return
+                if time.perf_counter() > deadline:
+                    break  # the rest is painted on the next frame
+            if self.trace is not None:
+                self.trace(f"paint {painted} rows in {(time.perf_counter() - started) * 1000:.0f} ms"
+                           f" ({len(self._backlog)} left)")
+        elif self._warm:
+            self._warm_up(deadline)
 
-    def _texture(self, text: str, fg: str, bold: bool):
-        key = (text, fg, bold)
-        tex = self._textures.get(key)
-        if tex is None:
-            label = CoreLabel(
-                text=text, font_size=self.grid.font_px, font_name=self._fonts[bold], color=_rgb(fg)
-            )
-            label.refresh()
-            tex = label.texture
-            if len(self._textures) > 4096:
-                self._textures.clear()
-            self._textures[key] = tex
-        return tex
+    def _ensure_atlas(self) -> GlyphAtlas:
+        if self._atlas is None:
+            self._atlas = GlyphAtlas(self.grid.font_px, self._fonts)
+            self._warm = [(ch, bold) for bold in (False, True) for ch in WARM_GLYPHS]
+        return self._atlas
 
-    def _rect(self, group: InstructionGroup, x: int, y_down: int, w: int, h: int) -> None:
-        """Add a rectangle given in top-down pixel coordinates."""
-        group.add(Rectangle(pos=(self.x + x, self.top - y_down - h), size=(w, h)))
+    def _warm_up(self, deadline: float) -> None:
+        """Render common glyphs ahead of time, a few per idle frame."""
+        atlas = self._ensure_atlas()
+        while self._warm and time.perf_counter() < deadline:
+            ch, bold = self._warm.pop()
+            if (ch, bold) not in atlas:
+                atlas.get(ch, bold)
 
     def _paint_row(self, row: int, runs: list[Run]) -> None:
+        atlas = self._ensure_atlas()
+        g = self.grid
+        left, top = self.x, self.top
+        y0, y1 = g.row_edge(row), g.row_edge(row + 1)
+        # Kivy's y axis points up: the row spans [by0, by1) on screen.
+        by0, by1 = top - y1, top - y0
+        cell_h = y1 - y0
+        bgs: dict[str, _Quads] = {}
+        solids: dict[str, _Quads] = {}
+        texts: dict[str, _Quads] = {}
+        col_edge = g.col_edge
+        for run in runs:
+            text = run.text
+            x0 = col_edge(run.col)
+            x1 = col_edge(run.col + (len(text) if text.isascii() else cell_len(text)))
+            if run.bg != DEFAULT_BG:
+                bgs.setdefault(run.bg, _Quads()).add(left + x0, by0, left + x1, by1)
+            fg = run.fg
+            text_q = solid_q = None
+            col = run.col
+            for ch in text:
+                if ch == " ":
+                    col += 1
+                    continue
+                cx0 = col_edge(col)
+                if ch in DRAWN:
+                    if solid_q is None:
+                        solid_q = solids.setdefault(fg, _Quads())
+                    for rx, ry, rw, rh in cell_rects(ch, cx0, y0, col_edge(col + 1), y1, g.scale):
+                        solid_q.add(left + rx, top - ry - rh, left + rx + rw, top - ry)
+                    col += 1
+                    continue
+                glyph = atlas.get(ch, run.bold)
+                if glyph is not None:
+                    w, h, u0, v0, u1, v1 = glyph
+                    if text_q is None:
+                        text_q = texts.setdefault(fg, _Quads())
+                    # Centre vertically in the cell; whole pixels keep glyphs sharp.
+                    gy = by1 - (cell_h - h) // 2 - h
+                    gx = left + cx0
+                    text_q.add(gx, gy, gx + w, gy + h, u0, v0, u1, v1)
+                col += 1 if ch.isascii() else get_character_cell_size(ch)
+            if run.underline:
+                t = max(1, round(g.scale))
+                solids.setdefault(fg, _Quads()).add(left + x0, by0 + t, left + x1, by0 + 2 * t)
+
+        group = InstructionGroup()
+        for colours, texture in ((bgs, None), (solids, None), (texts, atlas.texture)):
+            for colour, quads in colours.items():
+                group.add(Color(*_rgb(colour)))
+                group.add(Mesh(vertices=quads.vertices, indices=quads.indices,
+                               mode="triangles", texture=texture))
         old = self._rows.pop(row, None)
         if old is not None:
             self.canvas.remove(old)
-        g = self.grid
-        group = InstructionGroup()
-        y0, y1 = g.row_edge(row), g.row_edge(row + 1)
-        for run in runs:
-            x0, x1 = g.col_edge(run.col), g.col_edge(run.col + len(run.text))
-            if run.bg != DEFAULT_BG:
-                group.add(Color(*_rgb(run.bg)))
-                self._rect(group, x0, y0, x1 - x0, y1 - y0)
-            fg = _rgb(run.fg)
-            # Split the run: box/block glyphs as rectangles, the rest as text.
-            seg_start, seg = run.col, []
-            for i, ch in enumerate(run.text + "\0"):
-                col = run.col + i
-                if ch in DRAWN or ch == "\0":
-                    if seg and "".join(seg).strip():
-                        self._paint_text(group, "".join(seg), seg_start, y0, y1, run)
-                    seg, seg_start = [], col + 1
-                    if ch in DRAWN:
-                        group.add(Color(*fg))
-                        cx0, cx1 = g.col_edge(col), g.col_edge(col + 1)
-                        for r in cell_rects(ch, cx0, y0, cx1, y1, g.scale):
-                            self._rect(group, *r)
-                else:
-                    seg.append(ch)
-            if run.underline:
-                group.add(Color(*fg))
-                t = max(1, round(g.scale))
-                self._rect(group, x0, y1 - 2 * t, x1 - x0, t)
         self.canvas.add(group)
         self._rows[row] = group
-
-    def _paint_text(self, group, text: str, col: int, y0: int, y1: int, run: Run) -> None:
-        tex = self._texture(text, run.fg, run.bold)
-        group.add(Color(1, 1, 1, 1))
-        x = self.x + self.grid.col_edge(col)
-        # Centre vertically in the cell; integer position keeps glyphs sharp.
-        y_down = y0 + ((y1 - y0) - tex.height) // 2
-        group.add(Rectangle(texture=tex, pos=(x, self.top - y_down - tex.height), size=tex.size))
 
     # ---------------------------------------------------------------- touch
     def on_touch_down(self, touch) -> bool:
@@ -224,7 +298,9 @@ def paste_clipboard(bridge: TerminalBridge) -> None:
 
         text = Clipboard.paste()
     except Exception as exc:  # noqa: BLE001 - no clipboard provider: say so, don't crash
-        bridge.call_in_app(lambda app: app.notify(f"Clipboard unavailable: {exc}", severity="warning"))
+        # Format now: Python unbinds ``exc`` when the except block ends.
+        message = f"Clipboard unavailable: {exc}"
+        bridge.call_in_app(lambda app: app.notify(message, severity="warning"))
         return
     if not text:
         bridge.call_in_app(lambda app: app.notify("Clipboard is empty."))
@@ -241,6 +317,8 @@ class OlaresWorkspaceApp(App):
         self._prepare_config()
         self.bridge = TerminalBridge(self._make_tui, on_exit=self._tui_exited)
         self.view = TerminalView(self.bridge)
+        if self._debug_input:
+            self.view.trace = self._trace
         self._chars = CharFallback()
         self._pending_ev = None
         self._keyboard = None
