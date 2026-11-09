@@ -100,6 +100,9 @@ class K9sPane(Vertical):
         self.query_one(TerminalEmulator).display = False
         try:
             self.public_key = ensure_client_key(self.target.key_path)
+        except ImportError as exc:  # native cryptography failed to load on this device
+            self.public_key = "(unavailable)"
+            self.state, self.error = "error", f"SSH is unavailable on this device: {exc}"
         except OSError as exc:
             self.public_key = f"(could not create key at {self.target.key_path}: {exc})"
         self._render_state()

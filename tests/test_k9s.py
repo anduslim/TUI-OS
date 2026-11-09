@@ -252,3 +252,29 @@ async def test_quit_while_connected_is_clean(ssh_server, settings):
                 break
         assert app.query_one(K9sPane).state == "connected"
     # leaving the context unmounts everything; any exception would surface here
+
+
+async def test_k9s_tab_degrades_when_ssh_cannot_load(settings, monkeypatch):
+    """If the native cryptography module can't load on a device, only the K9s
+    tab reports it; the app itself still starts (asyncssh is imported lazily)."""
+    import sys
+
+    from tui_os.app import TuiOS
+    from tui_os.services import ssh
+    from tui_os.services.telemetry import DemoTelemetry
+    from tui_os.widgets.k9s import K9sPane
+
+    def broken():
+        raise ImportError("dlopen failed: _rust.abi3.so")
+
+    monkeypatch.setattr(ssh, "_asyncssh", broken)
+    monkeypatch.setenv("TUI_OS_DATA", str(Path(__file__).parent / "__no_key_here__"))
+    app = TuiOS(settings, telemetry_source=DemoTelemetry(seed=1))
+    async with app.run_test(size=(147, 46)) as pilot:
+        await pilot.press("f5")
+        await pilot.pause()
+        pane = app.query_one(K9sPane)
+        assert pane.state == "error" and "SSH is unavailable" in (pane.error or "")
+        await pilot.press("f1")  # rest of the app works
+        await pilot.pause()
+        assert app.query_one("#workspace").active == "terminal"

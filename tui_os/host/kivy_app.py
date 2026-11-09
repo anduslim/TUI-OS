@@ -238,8 +238,10 @@ class OlaresWorkspaceApp(App):
 
     def _tui_exited(self, bridge: TerminalBridge) -> None:
         if bridge.error:
-            print(bridge.error)  # goes to logcat ("python" tag)
-        Clock.schedule_once(lambda _dt: self.stop(), 0)
+            # Don't vanish: show the traceback on the panel and keep it on disk.
+            Clock.schedule_once(lambda _dt: show_crash(self, bridge.error), 0)
+        else:
+            Clock.schedule_once(lambda _dt: self.stop(), 0)
 
     def _prepare_config(self) -> None:
         """First launch: copy the bundled config.toml to private storage."""
@@ -295,6 +297,60 @@ class OlaresWorkspaceApp(App):
             self.bridge.send_text(self._pending_char.character)
         self._pending_char = None
         self._pending_ev = None
+
+
+def crash_log_path(app: App | None = None) -> Path:
+    """Where crash.log goes.
+
+    On Android: the app's external files dir
+    (/sdcard/Android/data/org.olares.olares_workspace_tui/files/), readable with
+    ``adb pull`` or the Boox file manager. Release builds aren't debuggable,
+    so ``run-as`` can't reach private storage. Elsewhere: the user data dir.
+    """
+    if platform == "android":
+        try:
+            from jnius import autoclass  # type: ignore[import-not-found]
+
+            activity = autoclass("org.kivy.android.PythonActivity").mActivity
+            ext = activity.getExternalFilesDir(None)
+            if ext is not None:
+                return Path(ext.getAbsolutePath()) / "crash.log"
+        except Exception:  # noqa: BLE001 - fall back to private storage
+            pass
+    base = Path(app.user_data_dir) if app is not None else Path(os.environ.get("ANDROID_PRIVATE", "."))
+    return base / "crash.log"
+
+
+def show_crash(app: App, text: str) -> None:
+    """Replace the UI with the traceback (E-ink palette), write crash.log, log it."""
+    from kivy.uix.label import Label
+
+    print(text)  # logcat, tag "python"
+    path = crash_log_path(app)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    except OSError:
+        pass
+    lines = text.rstrip().splitlines()
+    tail = "\n".join(lines[-40:])  # the end of a traceback is what matters
+    label = Label(
+        text=f"TUI-OS crashed. Full traceback: {path}\nBACK / Esc closes the app.\n\n{tail}",
+        font_name=str(FONT_REGULAR) if FONT_REGULAR.exists() else "Roboto",
+        font_size=f"{max(12, int(Window.height / 60))}px",
+        color=(1, 1, 1, 1),
+        halign="left",
+        valign="top",
+        padding=(24, 24),
+    )
+    label.bind(size=lambda w, *_: setattr(w, "text_size", w.size))
+    Window.unbind(on_key_down=app._on_key_down, on_textinput=app._on_textinput)
+    Window.unbind(on_keyboard=app._swallow_back)
+    Window.bind(on_keyboard=lambda _w, key, *_a: (app.stop(), True)[1] if key == 27 else False)
+    Window.remove_widget(app.root)
+    app.root = label
+    Window.add_widget(label)
+    label.size = Window.size
 
 
 def _android_host(bridge: TerminalBridge, view: TerminalView):

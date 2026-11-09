@@ -67,6 +67,21 @@ def _colour(value: str, default: str) -> str:
     return _NAMED.get(value, default)
 
 
+def _swallowed_error(app: "App[Any]") -> str | None:
+    """The traceback of an exception Textual caught and exited on.
+
+    Textual doesn't re-raise errors from compose/mount/handlers: it renders
+    the traceback to stderr (invisible in an APK) and returns from ``run()``
+    with return code 1. Recover the exception so the host can show it.
+    """
+    if not app.return_code:
+        return None
+    exc = getattr(app, "_exception", None)
+    if isinstance(exc, BaseException):
+        return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return f"The app exited with return code {app.return_code}."
+
+
 @dataclass(frozen=True)
 class Run:
     """A horizontal span of cells sharing one style."""
@@ -149,6 +164,7 @@ class TerminalBridge:
         try:
             self.app = self._app_factory(self.driver_class())
             self.app.run()
+            self.error = self.error or _swallowed_error(self.app)
         except BaseException:  # noqa: BLE001 - surface any crash to the host
             self.error = traceback.format_exc()
         finally:

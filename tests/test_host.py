@@ -112,7 +112,10 @@ def test_bridge_resize_and_tap(bridge):
     bridge.resize(120, 40)
     assert _wait_for(lambda: len(bridge.text_lines()) == 40 and len(bridge.text_lines()[0]) == 120)
     assert _wait_for(lambda: tuple(bridge.app.size) == (120, 40))
-    time.sleep(0.3)  # let the relayout land before hit-testing
+    # Wait for the re-render at the new size to reach the screen (the pyte
+    # buffer can be blank until it does; a fixed sleep flaked on slow CI).
+    assert _wait_for(lambda: "2 Mail" in screen(bridge) and "4 Browser" in screen(bridge))
+    time.sleep(0.3)  # let the compositor map settle before hit-testing
     row = next(i for i, line in enumerate(bridge.text_lines()) if "2 Mail" in line)
     col = bridge.text_lines()[row].index("2 Mail") + 2
     bridge.tap(col, row)
@@ -177,3 +180,22 @@ def test_box_glyphs_reach_cell_edges_and_join():
     assert cell_rects("▌", x0, y0, x1, y1, 2.0)[0][2] in (8, 9)
     assert cell_rects("A", x0, y0, x1, y1, 2.0) == []
     assert {"─", "│", "┏", "━", "╸", "█", "▁", "▊"} <= DRAWN and "·" not in DRAWN
+
+
+def test_bridge_reports_errors_textual_swallows():
+    """Textual catches exceptions from compose/mount, prints them to stderr
+    (invisible in an APK) and returns from run(); the bridge must still
+    surface the traceback so the host can show its crash screen."""
+    from textual.app import App
+
+    class Broken(App):
+        def compose(self):
+            raise ValueError("boom in compose")
+            yield  # pragma: no cover
+
+    exited = []
+    b = TerminalBridge(lambda dc: Broken(driver_class=dc), on_exit=exited.append)
+    b.start()
+    assert b.finished.wait(10) and exited == [b]
+    assert b.error is not None
+    assert "ValueError: boom in compose" in b.error

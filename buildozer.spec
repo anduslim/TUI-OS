@@ -22,7 +22,7 @@ source.include_exts = py,png,jpg,kv,atlas,ini,css,tcss,toml,ttf,txt,yaml
 source.exclude_dirs = tests, tools, bin, .buildozer, .git, .github, design, __pycache__
 
 # (str) Application version
-version = 1.1.0
+version = 1.1.1
 
 # (list) Application requirements
 # Crucial: include hostpython3, kivy, and external async libraries your code needs
