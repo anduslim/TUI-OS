@@ -10,3 +10,8 @@ build/
 bin/
 *.apk
 *.aab
+signing/
+*.keystore
+*.jks
+keystore-password.txt
+crash.log

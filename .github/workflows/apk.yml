@@ -5,14 +5,11 @@
 #     (creates the tag v1.1.0 on the selected commit)
 #   * git tag v1.1.0 && git push origin v1.1.0
 #
-# Signing: add these repository secrets for a release-signed APK with a
-# stable key (needed for in-place updates across releases):
-#   ANDROID_KEYSTORE_BASE64   base64 of the .keystore/.jks file
-#   ANDROID_KEYSTORE_PASSWORD
-#   ANDROID_KEY_ALIAS
-#   ANDROID_KEY_PASSWORD
-# Without them the release carries a debug-signed APK (installable, but each
-# CI keystore differs, so updating may require uninstalling first).
+# Signing (README: Signing): run tools/create_signing_key.sh --upload once to
+# create your permanent key and store it as repository secrets:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+#   ANDROID_KEY_PASSWORD, and optionally ANDROID_CERT_SHA256 (pins the key).
+# Every APK is a signed release build checked by tools/verify_apk.sh.
 name: Android APK
 
 on:
@@ -41,7 +38,8 @@ jobs:
     timeout-minutes: 120
     outputs:
       apk_name: ${{ steps.collect.outputs.apk_name }}
-      signed: ${{ steps.signing.outputs.signed }}
+      signing: ${{ steps.signing.outputs.mode }}
+      cert_sha256: ${{ steps.verify.outputs.cert_sha256 }}
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -98,43 +96,74 @@ jobs:
           echo "APP_VERSION=$v" >> "$GITHUB_ENV"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
-      - name: Signing keystore
+      - name: Signing key
         id: signing
+        # Every build is a signed, non-debuggable RELEASE build:
+        #   release   main / manual / tag runs with the ANDROID_* secrets: your
+        #             permanent key, so each APK installs over the previous one
+        #   ephemeral PRs, or before the secrets exist: a throwaway key made in
+        #             this job (installable for testing, not updatable)
+        # A GitHub Release refuses to publish without your key.
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           IS_RELEASE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release != '')) }}
         run: |
-          if [[ -n "$KEYSTORE_B64" && "$IS_RELEASE" == "true" ]]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-            echo "P4A_RELEASE_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
-            echo "signed=true" >> "$GITHUB_OUTPUT"
+          ks="$RUNNER_TEMP/release.keystore"
+          if [[ -n "$KEYSTORE_B64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" \
+                && "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$ks"
+            {
+              echo "P4A_RELEASE_KEYSTORE=$ks"
+              echo "P4A_RELEASE_KEYSTORE_PASSWD=$KEYSTORE_PASSWORD"
+              echo "P4A_RELEASE_KEYALIAS=$KEY_ALIAS"
+              echo "P4A_RELEASE_KEYALIAS_PASSWD=$KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          elif [[ "$IS_RELEASE" == "true" ]]; then
+            echo "::error::Releases must be signed with your permanent key, or installed copies can't be updated."
+            echo "::error::Run tools/create_signing_key.sh --upload once (see README: Signing), then re-run this release."
+            exit 1
           else
-            echo "signed=false" >> "$GITHUB_OUTPUT"
+            pw="$(openssl rand -hex 24)"
+            echo "::add-mask::$pw"
+            keytool -genkeypair -keystore "$ks" -storetype PKCS12 -storepass "$pw" -keypass "$pw" \
+              -alias ci -keyalg RSA -keysize 2048 -validity 30 \
+              -dname "CN=TUI-OS ephemeral CI key (test builds only)" 2>/dev/null
+            {
+              echo "P4A_RELEASE_KEYSTORE=$ks"
+              echo "P4A_RELEASE_KEYSTORE_PASSWD=$pw"
+              echo "P4A_RELEASE_KEYALIAS=ci"
+              echo "P4A_RELEASE_KEYALIAS_PASSWD=$pw"
+            } >> "$GITHUB_ENV"
+            echo "mode=ephemeral" >> "$GITHUB_OUTPUT"
+            echo "::warning::Signed with a throwaway key: installable for testing, but it can't update other builds. Add the ANDROID_* secrets (README: Signing)."
           fi
 
-      - name: Build APK
+      - name: Build APK (release, signed)
         env:
           APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
-          P4A_RELEASE_KEYSTORE_PASSWD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          P4A_RELEASE_KEYALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          P4A_RELEASE_KEYALIAS_PASSWD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          if [[ "${{ steps.signing.outputs.signed }}" == "true" ]]; then
-            yes | buildozer android release
-          else
-            yes | buildozer android debug
-          fi
+        run: yes | buildozer android release
 
       - name: Collect APK
         id: collect
         run: |
           mkdir -p dist
           src="$(ls -t bin/*.apk | head -1)"
-          kind=$([[ "${{ steps.signing.outputs.signed }}" == "true" ]] && echo release || echo debug)
-          name="olares-workspace-tui-${{ steps.version.outputs.version }}-arm64-v8a-${kind}.apk"
+          suffix=$([[ "${{ steps.signing.outputs.mode }}" == "release" ]] && echo "" || echo "-ephemeral")
+          name="olares-workspace-tui-${{ steps.version.outputs.version }}-arm64-v8a${suffix}.apk"
           cp "$src" "dist/$name"
-          (cd dist && sha256sum "$name" > "$name.sha256")
           echo "apk_name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Verify signature (as Android will)
+        id: verify
+        env:
+          EXPECTED_CERT: ${{ steps.signing.outputs.mode == 'release' && secrets.ANDROID_CERT_SHA256 || '' }}
+        run: |
+          tools/verify_apk.sh "dist/${{ steps.collect.outputs.apk_name }}" "$EXPECTED_CERT"
+          (cd dist && sha256sum "${{ steps.collect.outputs.apk_name }}" > "${{ steps.collect.outputs.apk_name }}.sha256")
 
       - uses: actions/upload-artifact@v4
         with:
@@ -166,6 +195,7 @@ jobs:
           body: |
             **Olares Workspace TUI v${{ needs.apk.outputs.version }}**: native Android APK for the Onyx Boox Tab Ultra C (arm64-v8a, Android 11+).
 
-            Install: download `${{ needs.apk.outputs.apk_name }}`, then `adb install -r <apk>` or open it on the tablet.
-            Signing: ${{ needs.apk.outputs.signed == 'true' && 'release keystore' || 'debug key (add the ANDROID_KEYSTORE_* secrets for stable release signing)' }}.
-            Checksum: see the `.sha256` file.
+            **Install:** download `${{ needs.apk.outputs.apk_name }}`, then `adb install -r <apk>`, or open it on the tablet (allow your file manager to *install unknown apps*).
+            **Signing:** release key, verified with `apksigner` (v1+v2, not debuggable).
+            Certificate SHA-256: `${{ needs.apk.outputs.cert_sha256 }}`. Every release is signed with this same key, so updates install over the previous version.
+            **Checksum:** see the `.sha256` file.

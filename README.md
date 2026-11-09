@@ -288,11 +288,63 @@ To cut a release, either:
   workflow creates the `v1.1.0` tag on the selected commit; or
 * **git:** `git tag v1.1.0 && git push origin v1.1.0`.
 
-Signing: add the repository secrets `ANDROID_KEYSTORE_BASE64`,
-`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` for a
-release-signed APK with a stable key. That's needed for in-place updates. Without
-them the release ships a debug-signed APK, which installs but may need an
-uninstall before the next update.
+### Signing
+
+Android only installs an update over an existing app if both are signed with the
+**same key**. CI therefore signs every APK as a non-debuggable release build, and
+`tools/verify_apk.sh` checks each one with Android's own `apksigner`, `zipalign`
+and `aapt2` before upload:
+
+| Build | Key | Use |
+|-------|-----|-----|
+| `main`, *Run workflow*, `v*` tags (secrets set) | **your permanent release key** | install and update in place |
+| Pull requests, or before the secrets exist | a throwaway key made in the job (`-ephemeral.apk`) | testing only: installs, but can't update other builds |
+| GitHub Release without the secrets | refused | so no release can strand installed copies |
+
+**One-time setup, on your own computer** (needs a JDK; `gh` for `--upload`):
+
+```bash
+tools/create_signing_key.sh --upload     # creates signing/ and sets the GitHub secrets
+```
+
+This creates `signing/release.keystore` (RSA 4096, PKCS12) plus its password, and
+stores five repository secrets: `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and
+`ANDROID_CERT_SHA256`. The last one *pins* the key: CI fails if an APK is signed by
+anything else. Without `--upload` the script prints what to paste into GitHub →
+Settings → Secrets and variables → Actions. The key never passes through CI logs or
+the repo (`signing/` is git-ignored).
+
+* **Back up `signing/`** (for example in a password manager). Losing the key means
+  installed copies can never be updated in place again.
+* **First switch from v1.1.0:** v1.1.0 was signed with a throwaway debug key, so
+  uninstall it once (`adb uninstall org.olares.olares_workspace_tui`) before
+  installing the first release-signed build. From then on, updates install over it.
+* Each release's notes print the signing certificate's SHA-256, so you can confirm
+  every release uses the same key.
+
+### Debugging on the device
+
+With the Boox connected over USB (Developer options → USB debugging):
+
+```bash
+adb install -r olares-workspace-tui-<version>-arm64-v8a.apk
+adb logcat -c
+adb shell am start -n org.olares.olares_workspace_tui/org.kivy.android.PythonActivity
+adb logcat -v time python:V AndroidRuntime:E PythonActivity:V SDL:V DEBUG:V *:S
+```
+
+All Python output (including tracebacks) is logged under the `python` tag. If the
+app fails it doesn't just close. It shows the traceback full-screen and writes
+`crash.log` to the app's external files folder:
+
+```bash
+adb pull /sdcard/Android/data/org.olares.olares_workspace_tui/files/crash.log
+```
+
+The `failed creating starting window … InflateException` warning at launch is the
+system splash screen not rendering with the app's theme. It's harmless: Android
+skips it and starts the app.
 
 ## Roadmap
 

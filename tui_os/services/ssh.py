@@ -23,14 +23,24 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-import asyncssh
+if TYPE_CHECKING:
+    import asyncssh
 
 REMOTE_CONFIG_DIR = ".config/tui-os/k9s"
 
 
 class HostKeyChanged(RuntimeError):
     pass
+
+
+def _asyncssh() -> Any:
+    """Import asyncssh (and the native cryptography module) only when SSH is
+    actually used, so a device where it can't load only loses the K9s tab."""
+    import asyncssh
+
+    return asyncssh
 
 
 @dataclass(frozen=True)
@@ -57,7 +67,7 @@ def ensure_client_key(path: Path) -> str:
     """Create the device's Ed25519 key if needed; return the public key line."""
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        key = asyncssh.generate_private_key("ssh-ed25519", comment="tui-os@boox")
+        key = _asyncssh().generate_private_key("ssh-ed25519", comment="tui-os@boox")
         key.write_private_key(str(path))
         os.chmod(path, 0o600)
         key.write_public_key(str(path) + ".pub")
@@ -72,7 +82,7 @@ def known_host(target: SshTarget) -> bool:
     return any(line.split(" ", 1)[0] == target.host_token for line in lines if line.strip())
 
 
-def remember_host(target: SshTarget, key: asyncssh.SSHKey) -> None:
+def remember_host(target: SshTarget, key: "asyncssh.SSHKey") -> None:
     target.known_hosts_path.parent.mkdir(parents=True, exist_ok=True)
     line = f"{target.host_token} {key.export_public_key('openssh').decode().strip()}\n"
     with target.known_hosts_path.open("a") as fh:
@@ -113,11 +123,12 @@ class SshTerminalSession:
         self.target = target
         self._on_output = on_output
         self._on_exit = on_exit
-        self._conn: asyncssh.SSHClientConnection | None = None
-        self._proc: asyncssh.SSHClientProcess | None = None
+        self._conn: "asyncssh.SSHClientConnection | None" = None
+        self._proc: "asyncssh.SSHClientProcess | None" = None
         self._reader: asyncio.Task | None = None
 
-    async def _connect(self) -> asyncssh.SSHClientConnection:
+    async def _connect(self) -> "asyncssh.SSHClientConnection":
+        asyncssh = _asyncssh()
         t = self.target
         trusted = known_host(t)
         keys = [str(t.key_path)] if t.key_path.exists() else []
@@ -142,7 +153,7 @@ class SshTerminalSession:
                 remember_host(t, key)
         return conn
 
-    async def _install_skin(self, conn: asyncssh.SSHClientConnection) -> None:
+    async def _install_skin(self, conn: "asyncssh.SSHClientConnection") -> None:
         d = f'"$HOME/{REMOTE_CONFIG_DIR}"'
         files = {
             "skins/eink.yaml": k9s_skin(),
@@ -165,6 +176,7 @@ class SshTerminalSession:
         self._reader = asyncio.create_task(self._pump())
 
     async def _pump(self) -> None:
+        asyncssh = _asyncssh()
         proc = self._proc
         assert proc is not None
         error: str | None = None
