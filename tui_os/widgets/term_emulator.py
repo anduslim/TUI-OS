@@ -16,6 +16,8 @@
   program asks for it, and ``CSI >``/``<``/``=`` sequences (kitty keyboard,
   modifyOtherKeys, XTVERSION) are dropped instead of being misread by pyte
   as colour changes (``CSI > 4;1 m`` would turn on bold + underline).
+* DEC line drawing (``ESC ( 0``, SO/SI) is honoured, so tmux borders
+  are drawn as lines, not ``qqqq``.
 """
 
 from __future__ import annotations
@@ -53,6 +55,23 @@ BRACKETED_PASTE = 2004 << 5
 _PREFIXED_CSI = re.compile(r"\x1b\[[<=>][0-9;:]*[ -/]*[@-~]")
 #: An escape sequence cut off at the end of a chunk; held for the next one.
 _PARTIAL_ESC = re.compile(r"\x1b(\[[<=>?]?[0-9;:]*[ -/]*)?$")
+
+
+class _Stream(pyte.Stream):
+    """A pyte stream that honours the DEC line-drawing charset.
+
+    pyte ignores ``ESC ( 0`` and SO/SI in UTF-8 mode, so tmux borders, which
+    use them (terminfo ``smacs``/``rmacs``), came out as ``qqqq`` and
+    ``xxxx``. Like xterm, honour them anyway: the input is already decoded
+    text, so leaving UTF-8 mode changes nothing else.
+    """
+
+    def __init__(self, screen: pyte.Screen) -> None:
+        super().__init__(screen)
+        self.use_utf8 = False
+
+    def select_other_charset(self, code: str) -> None:
+        """Ignore ``ESC % G``/``ESC % @``: they would turn line drawing off again."""
 
 
 class _Screen(pyte.Screen):
@@ -129,7 +148,7 @@ class TerminalEmulator(Widget, can_focus=True):
         self.on_input = on_input
         self._screen = _Screen(80, 24)
         self._screen.reply = self._reply
-        self._stream = pyte.Stream(self._screen)
+        self._stream = _Stream(self._screen)
         self._pending = ""
         self._rows: list[tuple] = []
         self._styles: dict[tuple, Style] = {}
