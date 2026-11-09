@@ -7,3 +7,14 @@ ollama_model = "llama3.1:8b"
 telemetry_interval = 5
 stream_flush_interval = 0.35
 demo_mode = false
+
+# LLM server. "ollama" (default) uses /api/generate on ollama_url.
+# "openai" talks to any OpenAI-compatible server, e.g. the Olares
+# llama.cpp Engine app (llama-server), vLLM, LM Studio or Ollama's /v1.
+# llm_api = "openai"
+# llm_url = "http://192.168.1.50:8080"
+# llm_model = ""        # empty = the model the server has loaded
+# llm_api_key = ""
+#
+# To change settings without rebuilding, push an override file:
+#   adb push config.toml /sdcard/Android/data/org.olares.olares_workspace_tui/files/

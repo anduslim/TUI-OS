@@ -23,7 +23,13 @@ import httpx
 
 
 class OllamaError(RuntimeError):
-    """Raised for API-level errors (bad model name, server error, ...)."""
+    """Raised for API-level errors (bad model name, server error, ...).
+
+    Also raised by the OpenAI-compatible client, so callers handle one type.
+    """
+
+
+LLMError = OllamaError
 
 
 @dataclass(frozen=True)
@@ -31,8 +37,9 @@ class GenerateChunk:
     text: str
     done: bool = False
     #: Opaque conversation state returned on the final chunk; pass it back on
-    #: the next request to keep a multi-turn session.
-    context: list[int] | None = None
+    #: the next request to keep a multi-turn session. (Ollama: token ids;
+    #: OpenAI-compatible: the message history.)
+    context: Any = None
     stats: dict[str, Any] = field(default_factory=dict)
 
     @property

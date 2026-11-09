@@ -156,7 +156,8 @@ class TerminalPane(Vertical):
         self._set_header("connecting…", ok=None, state="connecting")
         if self.flush_interval > 0:
             self._flush_timer = self.set_interval(self.flush_interval, self._flush, pause=True)
-        self._log(Text("TUI-OS terminal · local LLM via Ollama · /help for commands", STYLE_DIM))
+        api = "OpenAI-compatible" if getattr(self.client, "base_url", "").endswith("/v1") else "Ollama"
+        self._log(Text(f"TUI-OS terminal · local LLM via {api} at {self.client.base_url} · /help for commands", STYLE_DIM))
         self.probe_server()
 
     @property
@@ -203,7 +204,7 @@ class TerminalPane(Vertical):
         except httpx.HTTPError as exc:
             self._set_header(f"unreachable ({type(exc).__name__})", ok=False, state="unreachable")
             return
-        if models and self.client.model not in models:
+        if models and self.client.model and self.client.model not in models:
             self._set_header(f"model not pulled · {len(models)} available (/models)", ok=False, state="not pulled")
         else:
             self._set_header(f"ready · {len(models)} models", ok=True, state="ready")

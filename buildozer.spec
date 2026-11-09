@@ -29,7 +29,7 @@ source.exclude_dirs = tests, tools, bin, .buildozer, .git, .github, design, __py
 source.exclude_patterns = pyproject.toml
 
 # (str) Application version
-version = 1.1.2
+version = 1.1.3
 
 # (list) Application requirements
 # Crucial: include hostpython3, kivy, and external async libraries your code needs
