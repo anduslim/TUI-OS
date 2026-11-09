@@ -125,7 +125,9 @@ class MetricRow(Static):
         text.append(right, style)
         text.append("\n")
         text.append(key[1], style if ratio is not None else "#FFFFFF")
-        self.update(text)
+        # Fixed height (CSS): skip the full-screen relayout a Static update
+        # does by default. On the Boox that relayout cost ~0.5 s per poll.
+        self.update(text, layout=False)
         return True
 
 
@@ -153,7 +155,7 @@ class LlmNode(Static):
         text.append(right, LLM_STYLES.get(state, "#FFFFFF"))
         text.append("\n")
         text.append(model[:INNER_COLS], "#FFFFFF")
-        self.update(text)
+        self.update(text, layout=False)  # fixed height: no relayout
         return True
 
 

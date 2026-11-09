@@ -11,7 +11,7 @@ import time
 import pytest
 
 from tui_os.config import Settings
-from tui_os.host.bridge import TerminalBridge, _colour
+from tui_os.host.bridge import TerminalBridge
 from tui_os.host.keymap import CharKey, NamedKey, translate_keydown
 
 
@@ -41,9 +41,33 @@ def test_translate_keydown(keycode, codepoint, mods, expected):
 
 
 def test_colour_mapping():
-    assert _colour("00ff00", "FFFFFF") == "00FF00"
-    assert _colour("default", "000000") == "000000"
-    assert _colour("brightblue", "FFFFFF") == "0000FF"
+    from rich.style import Style
+
+    from tui_os.host.cells import style_key
+
+    assert style_key(Style(color="#00ff00")) == ("00FF00", "000000", False, False, False)
+    assert style_key(None) == ("FFFFFF", "000000", False, False, False)
+    assert style_key(Style(color="bright_blue", bgcolor="yellow", bold=True))[:3] == ("0000FF", "FFFF00", True)
+    assert style_key(Style(color="#ff0000", bgcolor="#ffffff", reverse=True))[:2] == ("FFFFFF", "FF0000")
+
+
+def test_cell_grid_writes_segments_and_wide_chars():
+    from rich.segment import Segment
+    from rich.style import Style
+
+    from tui_os.host.cells import CellGrid
+
+    g = CellGrid(10, 2)
+    g.dirty.clear()
+    end = g.put_segments(0, 1, [Segment("ab", Style(color="#00ff00")), Segment("日x")])
+    assert end == 6 and g.dirty == {0}
+    assert g.text_lines()[0] == " ab日x    "  # 日 fills two cells; its right half is ""
+    runs = g.row_runs(0)
+    assert [(r.col, r.text, r.fg) for r in runs] == [(0, " ", "FFFFFF"), (1, "ab", "00FF00"), (3, "日x    ", "FFFFFF")]
+    g.put_segments(0, 4, [Segment("z")])  # overwrites the right half of 日
+    assert g.text_lines()[0] == " ab zx    "
+    g.put_segments(1, 8, [Segment("toolong")])  # clipped at the right edge
+    assert g.text_lines()[1] == "        to"
 
 
 def _wait_for(predicate, timeout=8.0):
@@ -281,3 +305,13 @@ def test_bridge_paste_fills_the_vault_password_field():
         b.stop()
         assert b.finished.wait(5)
     assert b.error is None, b.error
+
+
+def test_key_bar_matches_footer_and_taps_run_keys(bridge):
+    # The bar changes once focus lands in the prompt ("esc Cancel" appears
+    # first, shifting every key): tap only what the settled bar shows.
+    assert _wait_for(lambda: bridge.text_lines()[-1].startswith("esc Cancel"))
+    last = bridge.text_lines()[-1]
+    assert "^b Telemetry" in last and "^2 Mail" in last and "^r Redraw" in last
+    bridge.tap(last.index("^2 Mail") + 1, len(bridge.text_lines()) - 1)
+    assert _wait_for(lambda: "NeoMutt" in screen(bridge))

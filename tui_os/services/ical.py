@@ -10,6 +10,7 @@ so drawing the month view is a dictionary lookup.
 
 from __future__ import annotations
 
+import asyncio
 import calendar as pycal
 import datetime as dt
 import re
@@ -336,6 +337,13 @@ class ICalCalendar:
             raise CalendarError(f"calendar download failed: HTTP {resp.status_code}")
         if "BEGIN:VCALENDAR" not in resp.text[:2000]:
             raise CalendarError("the calendar URL did not return iCal data (check ical_url)")
-        events = parse_ics(resp.text)
-        return expand(events, today - dt.timedelta(days=self.past_days),
-                      today + dt.timedelta(days=self.future_days))
+        # A Google feed holds years of events: parse and expand them on a
+        # worker thread so the app's event loop (and the UI) keeps running.
+        return await asyncio.to_thread(
+            _parse_and_expand, resp.text,
+            today - dt.timedelta(days=self.past_days), today + dt.timedelta(days=self.future_days),
+        )
+
+
+def _parse_and_expand(text: str, start: dt.date, end: dt.date) -> dict[dt.date, list[Appointment]]:
+    return expand(parse_ics(text), start, end)

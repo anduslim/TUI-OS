@@ -44,7 +44,7 @@ reflows to the full width straight away.
 pip install -e .            # or: pip install textual httpx
 tui-os --demo               # synthetic telemetry, no server needed
 tui-os --host 192.168.1.50  # real Olares box: Ollama :11434, Prometheus :9090
-python main.py              # the same app inside the Kivy host the APK uses (pip install kivy pyte)
+python main.py              # the same app inside the Kivy host the APK uses (pip install kivy)
 ```
 
 ## Android APK (Boox Tab Ultra C)
@@ -71,20 +71,24 @@ which builds the same spec and uploads the APK as an artifact.
 ### How a Textual app runs without a terminal
 
 Textual needs a terminal and an Android app process doesn't have one, so the APK
-puts a small virtual terminal in between (`tui_os/host/`):
+puts a small virtual screen in between (`tui_os/host/`):
 
 ```
 TuiOS (Textual, own thread + asyncio loop)
-   │ ANSI out                      ▲ events.Key / Resize / Mouse
+   │ compositor updates            ▲ events.Key / Resize / Mouse
    ▼                               │
-EmbeddedDriver ──▶ pyte.Screen ──▶ TerminalBridge.take_dirty_rows()
+CellGrid (cells.py) ──▶ styled runs ──▶ TerminalBridge.take_dirty_rows()
                                    │
                          Kivy TerminalView (paints changed rows only,
-                         JetBrains Mono, 6-colour palette) ◀── hardware keyboard, taps
+                         glyph atlas + one mesh per colour, 6-colour palette)
+                                   ◀── hardware keyboard, taps
 ```
 
 * **No shell, no Termux, no subprocess.** Textual runs in-process with a custom driver
-  (`bridge.py`). The Kivy UI thread never blocks on it.
+  (`bridge.py`). Screen updates go straight from Textual's compositor into a cell grid
+  (no ANSI encoding and re-parsing), and the app thread turns changed rows into styled
+  runs. The Kivy UI thread only swaps them out, then paints for at most 30 ms per frame,
+  so it never blocks long enough for Android's "app isn't responding" dialog.
 * **Hardware keyboard.** The app holds the system keyboard claim (and takes it back if it
   is released), so SDL keeps sending key events. With the keyboard cover attached,
   Android keeps the soft keyboard hidden. Special keys and Ctrl/Alt combinations go
@@ -371,7 +375,9 @@ tui_os/
 │   ├── android_host.py  Native WebView via pyjnius (+ android/src/…/EinkBrowser.java)
 │   ├── eink_web.py      CSS/JS injected into every page
 │   ├── services.py      HostServices protocol the Textual side talks to
-│   ├── bridge.py        Embedded Textual driver + pyte screen + input injection
+│   ├── bridge.py        Embedded Textual driver + input injection
+│   ├── cells.py         Cell grid fed by Textual's compositor updates
+│   ├── atlas.py         Glyph atlas: each character rendered once
 │   ├── grid.py          147×46 logical grid → device pixels
 │   ├── glyphs.py        Pixel-exact box-drawing / block characters
 │   ├── keymap.py        Hardware keyboard → Textual keys
