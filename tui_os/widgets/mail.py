@@ -128,13 +128,31 @@ class MailPane(Vertical):
         table.add_column("From", width=16, key="from")
         table.add_column("Subject", key="subject")
         self._fill_table()
-        if self.live:
-            self._state = "connecting..."
-            self._update_status()
-            self.refresh_mail()
-            interval = self.settings.mail_refresh_interval if self.settings else 0
-            if interval > 0:
-                self.set_interval(max(60.0, interval), self.refresh_mail)
+        self._timer = None
+        self._start_live()
+
+    def _start_live(self) -> None:
+        if not self.live:
+            return
+        self._state = "connecting..."
+        self._update_status()
+        self.refresh_mail()
+        interval = self.settings.mail_refresh_interval if self.settings else 0
+        if interval > 0 and self._timer is None:
+            self._timer = self.set_interval(max(60.0, interval), self.refresh_mail)
+
+    def reconfigure(self, settings: "Settings") -> None:
+        """New account settings (e.g. just unlocked from the vault)."""
+        self.settings = settings
+        mailbox = mailbox_from_settings(settings)
+        if mailbox is None:
+            return
+        self.mailbox = mailbox
+        self.messages = []
+        self.deleted.clear()
+        self._folder = "INBOX"
+        self._fill_table()
+        self._start_live()
 
     # ----------------------------------------------------------------- render
     def _fill_table(self) -> None:

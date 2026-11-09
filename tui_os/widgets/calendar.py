@@ -80,11 +80,28 @@ class CalendarPane(Vertical):
         self.query_one("#cal-month").border_title = "Calendar"
         self.query_one("#cal-todo").border_title = "Next 7 days" if self.live else "TODO"
         self._render_all()
-        if self.live:
-            self.refresh_calendar()
-            interval = self.settings.calendar_refresh_interval if self.settings else 0
-            if interval > 0:
-                self.set_interval(max(60.0, interval), self.refresh_calendar)
+        self._timer = None
+        self._start_live()
+
+    def _start_live(self) -> None:
+        if not self.live:
+            return
+        self.query_one("#cal-todo").border_title = "Next 7 days"
+        self.refresh_calendar()
+        interval = self.settings.calendar_refresh_interval if self.settings else 0
+        if interval > 0 and self._timer is None:
+            self._timer = self.set_interval(max(60.0, interval), self.refresh_calendar)
+
+    def reconfigure(self, settings: "Settings") -> None:
+        """New settings (e.g. ical_url just unlocked from the vault)."""
+        self.settings = settings
+        if not settings.ical_url:
+            return
+        self.source = ICalCalendar(settings.ical_url)
+        self._by_day = {}
+        self._state = "loading..."
+        self._render_all()
+        self._start_live()
 
     @work(exclusive=True, group="calendar-fetch", exit_on_error=False)
     async def refresh_calendar(self) -> None:

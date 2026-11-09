@@ -192,6 +192,38 @@ ical_url = "https://calendar.google.com/calendar/ical/.../private-.../basic.ics"
   `calendar_refresh_interval` seconds (900). Anyone with the URL can read the
   calendar, so treat it like a password.
 
+### Secrets from Vaultwarden (recommended)
+
+Instead of putting the app password and iCal URL in `config.toml`, keep them in a
+Vaultwarden (Bitwarden-compatible) server on the Olares One. The TUI then stores only
+the server address and your email, asks for the master password at launch, and keeps
+the decrypted values in memory. (The built-in Olares **Vault** app is based on Padloc
+and has no API the TUI can use, so it can't fill this role.)
+
+1. Install Vaultwarden on the Olares One (Market, or a custom app), create an
+   account in its web vault, and reach it from the tablet over Tailscale.
+2. Add a **Login** item named `TUI-OS`: username = your Gmail address, password =
+   the app password. Add a custom field (text or hidden) named `ical_url` with the
+   secret iCal address. Any other custom field named like a `config.toml` key
+   (`mail_name`, `imap_host`, ...) overrides that key too.
+3. In `config.toml`:
+
+   ```toml
+   vault_url = "https://vaultwarden.<you>.olares.com"   # or http://olares-one:<port>
+   vault_email = "you@example.com"
+   # vault_item = "TUI-OS"
+   ```
+
+At launch an **Unlock vault** prompt appears. Enter the master password, then a
+two-step login code if your account asks for one. Esc skips the vault and uses
+whatever `config.toml` holds, so plain values there still work as a fallback. To
+skip the code prompt, set `vault_client_id` / `vault_client_secret` from *Account
+settings > Security > Keys > View API key*; the master password is still needed to
+decrypt. Accounts using the PBKDF2 key derivation (Vaultwarden's default) work
+everywhere; Argon2id needs OpenSSL 3.2+ in the APK build. Only personal items are
+read, not items shared through an organization. The vault needs `cryptography`,
+which the APK already ships for the K9s tab.
+
 ## Browser tab (WebView) and Tailscale
 
 In the APK, the Browser tab is a real Android **WebView** placed exactly over the
@@ -416,8 +448,6 @@ skips it and starts the app.
 
 ## Roadmap
 
-* Pull the mail password and iCal URL from a password vault on the Olares One
-  instead of `config.toml`.
 * A real PTY shell tab next to the LLM terminal.
 * An in-app settings screen for the host, model and k9s target (today: `android/config.toml` before building).
 * Keyboard-driven link hints in the WebView (like Vimium) for mouse-free navigation.

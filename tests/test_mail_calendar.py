@@ -205,3 +205,17 @@ async def test_calendar_pane_live_feed(make_app):
         assert await _until(pilot, lambda: bool(pane._by_day))
         await asyncio.sleep(0)
         assert "Stand-up, daily" in str(pane.query_one("#cal-appts").render())
+
+
+async def test_mail_pane_reconfigure_switches_from_demo(make_app, monkeypatch):
+    from tui_os.widgets import mail as mail_mod
+
+    box = FakeMailbox()
+    monkeypatch.setattr(mail_mod, "mailbox_from_settings", lambda s: box if s and s.mail_configured else None)
+    app = make_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        pane = app.query_one(mail_mod.MailPane)
+        assert not pane.live and pane.messages  # demo mailbox
+        pane.reconfigure(Settings(mail_address="a@b", mail_password="p", mail_refresh_interval=0))
+        assert await _until(pilot, lambda: [m.subject for m in pane.messages] == ["Hello", "Lunch?"])
+        assert pane.live

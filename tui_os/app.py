@@ -45,6 +45,8 @@ from .host.services import HostServices, WebViewEvent
 from .widgets.mail import MailPane
 from .widgets.telemetry_panel import TelemetryPanel
 from .widgets.terminal import TerminalPane
+from .widgets.unlock import UnlockScreen
+from .services.vault import VaultClient, VaultConfig
 
 TABS = ("terminal", "mail", "calendar", "browser", "k9s")
 
@@ -119,12 +121,14 @@ class TuiOS(App[None]):
         driver_class: type[Driver] | None = None,
         k9s_session_factory: SessionFactory | None = None,
         host: HostServices | None = None,
+        vault_client: VaultClient | None = None,
     ) -> None:
         # driver_class lets a non-terminal host (the Android/Kivy shell)
         # supply its own Driver instead of the TTY-based Linux driver.
         super().__init__(driver_class=driver_class)
         self.settings = settings or Settings.load()
         self._k9s_factory = k9s_session_factory
+        self._vault_client = vault_client
         #: Native services when embedded in the APK (WebView); None in a terminal.
         self.host = host
         # E-ink: every animation (tab underline slide, smooth scroll, fades)
@@ -175,6 +179,31 @@ class TuiOS(App[None]):
         self.query_one("#telemetry").display = self.settings.telemetry_visible
         self.telemetry_loop()
         self._focus_tab("terminal")
+        self._maybe_unlock_vault()
+
+    # ------------------------------------------------------------------- vault
+    def _maybe_unlock_vault(self) -> None:
+        """Ask for the Vaultwarden master password; config.toml values stay as fallback."""
+        client = self._vault_client
+        if client is None and self.settings.vault_configured:
+            s = self.settings
+            client = VaultClient(VaultConfig(
+                url=s.vault_url, email=s.vault_email, item=s.vault_item,
+                client_id=s.vault_client_id, client_secret=s.vault_client_secret,
+                device_id_path=s.data_dir / "vault_device_id",
+            ))
+        if client is None:
+            return
+
+        def unlocked(values: dict[str, str] | None) -> None:
+            if not values:
+                return
+            self.settings = self.settings.with_secrets(values)
+            self.query_one(MailPane).reconfigure(self.settings)
+            self.query_one(CalendarPane).reconfigure(self.settings)
+            self.notify(f"Vault unlocked: {', '.join(sorted(values))}", title="Vault")
+
+        self.push_screen(UnlockScreen(client), unlocked)
 
     async def on_unmount(self) -> None:
         await asyncio.gather(

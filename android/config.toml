@@ -27,5 +27,11 @@ demo_mode = false
 # "Secret address in iCal format". Read-only. Empty = demo calendar.
 # ical_url = "https://calendar.google.com/calendar/ical/.../basic.ics"
 #
+# Better: keep the two secrets above in Vaultwarden (item "TUI-OS": login =
+# Gmail address + app password, custom field ical_url) and only set these.
+# The TUI asks for the master password at launch. See README.
+# vault_url = "https://vaultwarden.you.olares.com"
+# vault_email = "you@example.com"
+#
 # To change settings without rebuilding, push an override file:
 #   adb push config.toml /sdcard/Android/data/org.olares.olares_workspace_tui/files/
