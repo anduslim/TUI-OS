@@ -130,6 +130,10 @@ class TerminalEmulator(Widget, can_focus=True):
         self._screen = _Screen(80, 24)
         self._screen.reply = self._reply
         self._stream = pyte.Stream(self._screen)
+        # Input is already decoded text. pyte's UTF-8 mode only disables
+        # charset switching, which drops DEC line drawing (ESC ( 0, SO/SI):
+        # tmux borders and ncurses boxes would render as "qqqq".
+        self._stream.use_utf8 = False
         self._pending = ""
         self._rows: list[tuple] = []
         self._styles: dict[tuple, Style] = {}

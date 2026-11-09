@@ -101,3 +101,10 @@ async def test_without_agent_command_tab_6_is_the_llm_terminal(make_app):
     async with app.run_test(size=(147, 46)):
         assert app.query_one("#terminal-pane").__class__ is TerminalPane
         assert not app.query(AgentPane)
+
+
+def test_dec_line_drawing_renders_box_characters():
+    """tmux draws pane borders with the DEC special graphics charset."""
+    term, _ = _emulator()
+    term.feed("\x1b(0lqqk\x1b(B é \x1b)0\x0emqj\x0f ok")
+    assert term.text_lines()[0].startswith("┌──┐ é └─┘ ok")
