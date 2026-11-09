@@ -11,7 +11,7 @@ A text-mode "personal OS" for doing development from an **Onyx Boox Tab Ultra C*
 | 3 Calendar | `Ctrl+3` / `F3` / `Alt+3` | Read-only iCal feed (e.g. Google Calendar) laid out like calcurse (mock data until configured) |
 | 4 Browser  | `Ctrl+4` / `F4` / `Alt+4` | **APK:** native Android WebView restyled to the E-ink palette. **Desktop:** text viewport like w3m |
 | 5 K9s (Cluster) | `Ctrl+5` / `F5` / `Alt+5` | `k9s` on the Olares One over SSH, in an E-ink skin |
-| 6 LLM Terminal | `Ctrl+6` / `F6` / `Alt+6` | Prompt environment that streams from the LLM on the box (Ollama, or any OpenAI-compatible server) |
+| 6 LLM Terminal | `Ctrl+6` / `F6` / `Alt+6` | Prompt environment that streams from the LLM on the box (Ollama, or any OpenAI-compatible server). With `agent_command` set it becomes **6 Agent**: Claude Code or opencode over SSH |
 
 On the Boox, F1–F6 and Alt+digit are taken by the system keyboard, so use
 **Ctrl+1–6** (they work in every tab, the SSH shell and the web page included) or
@@ -281,6 +281,26 @@ shell_user = "olares"
   prefix) and **Ctrl+R** (history search). The app keeps only Ctrl+1–6 / F1–F6 (tabs) and Ctrl+Q.
   To toggle telemetry, switch to another tab first.
 * `exit` or Ctrl+D ends the session; Enter reconnects.
+
+## Coding agents (Claude Code, opencode)
+
+Both run in the Shell tab as they are: type `claude` or `opencode`. The terminal
+answers their start-up queries, brackets pastes so a multi-line paste lands in the
+prompt, and keeps their colours inside the E-ink palette. They must be installed for
+the SSH user on the node (`curl -fsSL https://claude.ai/install.sh | bash`,
+`curl -fsSL https://opencode.ai/install | bash`); the Olares web-terminal apps run
+in their own containers, not on the host.
+
+For a dedicated tab, set `agent_command` and tab 6 becomes **6 Agent** in place of the
+LLM Terminal (same host, user and key as the Shell tab):
+
+```toml
+agent_command = "tmux new -A -s agent claude"     # or: ... -s agent opencode
+```
+
+tmux keeps the agent working while the tablet sleeps; opening the tab reattaches.
+Every key goes to the agent (Esc interrupts, Shift+Tab switches mode, Ctrl+C), except
+Ctrl+1–6 and Ctrl+Q. For a new line in the prompt, end the line with `\` and press Enter.
 
 ## K9s (Cluster) tab
 

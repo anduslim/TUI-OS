@@ -220,6 +220,8 @@ class SshTerminalSession:
             await proc.wait_closed()
         except (asyncssh.Error, OSError) as exc:
             error = str(exc) or type(exc).__name__
+        if self._conn is not None:
+            self._conn.close()  # the program ended: don't leave the connection open
         self._on_exit(proc.exit_status, error)
 
     def write(self, data: str) -> None:
