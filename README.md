@@ -123,6 +123,46 @@ gpu_temp = 'max(DCGM_FI_DEV_GPU_TEMP)'
 | `TUI_OS_TELEMETRY_INTERVAL` | `--interval` | `5` |
 | `TUI_OS_STREAM_FLUSH` | `--flush` | `0.35` |
 | `TUI_OS_DEMO` | `--demo` | off |
+| `LLM_API` | | `ollama` (or `openai`) |
+| `LLM_URL` | | `ollama_url` |
+| `LLM_MODEL` | | `ollama_model` (Ollama) / server's model (OpenAI) |
+| `LLM_API_KEY` | | none |
+
+### LLM server: Ollama or OpenAI-compatible (llama.cpp)
+
+The Terminal tab talks to Ollama's `/api/generate` by default. Set `llm_api = "openai"`
+to use any OpenAI-compatible server (`/v1/chat/completions`), such as the Olares
+**llama.cpp Engine** app (`llama-server`), vLLM, LM Studio or Ollama's own `/v1`:
+
+```toml
+llm_api = "openai"
+llm_url = "http://192.168.1.50:8080"   # /v1 is added if missing
+llm_model = ""                         # empty = the model the server loaded
+llm_api_key = ""                       # sent as a Bearer token when set
+```
+
+The conversation history is kept in the app (these servers are stateless); `/reset`
+clears it. llama.cpp's timings give the tok/s figure.
+
+### Changing settings on the tablet
+
+Android apps get no environment variables, and release builds keep their private
+storage closed to `adb`. Instead the app reads an **override file** from its external
+files folder. Its keys win over the bundled `android/config.toml`, so you only list
+what you change:
+
+```bash
+D=/sdcard/Android/data/org.olares.olares_workspace_tui/files
+adb pull $D/config.toml.example config.toml   # the app writes this example on launch
+$EDITOR config.toml
+adb push config.toml $D/
+adb shell am force-stop org.olares.olares_workspace_tui   # then reopen the app
+```
+
+Add `debug_input = true` to log every key and text-input event to logcat
+(`adb logcat -s python`), which helps when a keyboard or input method misbehaves.
+Delete `$D/config.toml` to go back to the bundled settings. A file with a TOML error
+shows on the crash screen with its path.
 
 The default PromQL queries assume **node-exporter** (CPU temperature, network) and the
 **NVIDIA DCGM exporter** (GPU temperature, VRAM). If your box exposes different metric

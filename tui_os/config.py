@@ -4,8 +4,11 @@ Resolution order (later wins):
 
 1. Built-in defaults (below).
 2. TOML file at ``$TUI_OS_CONFIG`` or ``~/.config/tui-os/config.toml``.
-3. Environment variables (``OLARES_HOST``, ``OLLAMA_URL``, ...).
-4. Command-line flags (see ``tui_os.__main__``).
+3. Override TOML at ``$TUI_OS_CONFIG_OVERRIDE``, if it exists. The APK points
+   this at its external files dir, so ``adb push config.toml`` changes
+   settings on a release build without rebuilding.
+4. Environment variables (``OLARES_HOST``, ``LLM_URL``, ...).
+5. Command-line flags (see ``tui_os.__main__``).
 
 Example ``config.toml``::
 
@@ -56,6 +59,18 @@ class Settings:
     ollama_url: str = ""
     ollama_model: str = "llama3.1:8b"
     ollama_system_prompt: str = ""
+    #: LLM wire protocol: "ollama" (/api/generate) or "openai"
+    #: (/v1/chat/completions: llama.cpp server, vLLM, LM Studio, Ollama's /v1).
+    llm_api: str = "ollama"
+    #: Base URL of the LLM server; empty = ollama_url, else http://HOST:11434.
+    #: For "openai" a trailing /v1 is optional.
+    llm_url: str = ""
+    #: Model name sent to the server. Empty: ollama_model for "ollama"; for
+    #: "openai" the server's loaded model (llama.cpp serves one model and
+    #: accepts any name; on Olares its alias is the app's MODEL_NAME).
+    llm_model: str = ""
+    #: Sent as "Authorization: Bearer <key>" when set (OpenAI-style servers).
+    llm_api_key: str = ""
     #: Empty means "derive from olares_host".
     prometheus_url: str = ""
     #: Seconds between telemetry polls. Keep >= 2s on E-ink.
@@ -94,12 +109,34 @@ class Settings:
     k9s_autoconnect: bool = True
     #: Private key path; empty = <data dir>/id_ed25519 (generated on first use).
     ssh_key_path: str = ""
+    #: APK: log every key / text-input event to logcat (tag "python") to
+    #: debug keyboards and input methods.
+    debug_input: bool = False
     queries: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_QUERIES))
 
     # ------------------------------------------------------------------ derived
     @property
     def resolved_ollama_url(self) -> str:
         return (self.ollama_url or f"http://{self.olares_host}:11434").rstrip("/")
+
+    @property
+    def resolved_llm_api(self) -> str:
+        api = self.llm_api.strip().lower()
+        if api not in ("ollama", "openai"):
+            raise ValueError(f'llm_api must be "ollama" or "openai", not {self.llm_api!r}')
+        return api
+
+    @property
+    def resolved_llm_url(self) -> str:
+        return (self.llm_url or self.resolved_ollama_url).rstrip("/")
+
+    @property
+    def resolved_llm_model(self) -> str:
+        # ollama_model's default ("llama3.1:8b") means nothing to an
+        # OpenAI-style server, so only Ollama falls back to it.
+        if self.resolved_llm_api == "openai":
+            return self.llm_model
+        return self.llm_model or self.ollama_model
 
     @property
     def resolved_prometheus_url(self) -> str:
@@ -128,6 +165,9 @@ class Settings:
     def load(cls, path: Path | None = None, **overrides: Any) -> "Settings":
         settings = cls()
         settings = settings._merge(_read_toml(path or default_config_path()))
+        override = os.environ.get("TUI_OS_CONFIG_OVERRIDE")
+        if override:
+            settings = settings._merge(_read_toml(Path(override).expanduser()))
         settings = settings._merge(_read_env())
         settings = settings._merge({k: v for k, v in overrides.items() if v is not None})
         return settings
@@ -162,6 +202,9 @@ def _read_toml(path: Path) -> dict[str, Any]:
             return tomllib.load(fh)
     except FileNotFoundError:
         return {}
+    except tomllib.TOMLDecodeError as exc:
+        # Shown on the crash screen; name the file so a bad `adb push` is obvious.
+        raise ValueError(f"invalid TOML in {path}: {exc}") from exc
 
 
 _ENV_MAP = {
@@ -169,6 +212,10 @@ _ENV_MAP = {
     "OLLAMA_URL": "ollama_url",
     "OLLAMA_MODEL": "ollama_model",
     "OLLAMA_SYSTEM_PROMPT": "ollama_system_prompt",
+    "LLM_API": "llm_api",
+    "LLM_URL": "llm_url",
+    "LLM_MODEL": "llm_model",
+    "LLM_API_KEY": "llm_api_key",
     "PROMETHEUS_URL": "prometheus_url",
     "TUI_OS_TELEMETRY_INTERVAL": "telemetry_interval",
     "TUI_OS_STREAM_FLUSH": "stream_flush_interval",
@@ -176,6 +223,7 @@ _ENV_MAP = {
     "TUI_OS_BROWSER_HOME": "browser_home",
     "TUI_OS_K9S_HOST": "k9s_host",
     "TUI_OS_K9S_USER": "k9s_user",
+    "TUI_OS_DEBUG_INPUT": "debug_input",
     "TUI_OS_START_TAB": "start_tab",
     "TUI_OS_SHELL_HOST": "shell_host",
     "TUI_OS_SHELL_USER": "shell_user",

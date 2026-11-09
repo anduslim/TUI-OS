@@ -41,13 +41,30 @@ from kivy.utils import platform  # noqa: E402
 from .bridge import DEFAULT_BG, Run, TerminalBridge  # noqa: E402
 from .glyphs import DRAWN, cell_rects  # noqa: E402
 from .grid import GRID_COLS, GRID_ROWS, GridGeometry  # noqa: E402
-from .keymap import CharKey, NamedKey, translate_keydown  # noqa: E402
+from .keymap import CharFallback, CharKey, NamedKey, translate_keydown  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 FONT_DIR = ROOT / "assets" / "fonts"
 FONT_REGULAR = FONT_DIR / "JetBrainsMonoNL-Regular.ttf"
 FONT_BOLD = FONT_DIR / "JetBrainsMonoNL-Bold.ttf"
 BUNDLED_CONFIG = ROOT / "android" / "config.toml"
+
+OVERRIDE_NAME = "config.toml"
+OVERRIDE_HEADER = """\
+# Rename to config.toml (same folder) to override the app's settings, e.g.
+#   adb pull /sdcard/Android/data/org.olares.olares_workspace_tui/files/config.toml.example config.toml
+#   (edit)  adb push config.toml /sdcard/Android/data/org.olares.olares_workspace_tui/files/
+# then force-stop and reopen the app. Keys here win over the bundled ones;
+# leave out what you don't change. Remove the file to go back to the defaults.
+#
+# Local LLM on llama.cpp (OpenAI-compatible API):
+#   llm_api = "openai"
+#   llm_url = "http://192.168.1.50:8080"   # or the app's https URL on Olares
+#   llm_model = ""                         # empty = whatever the server loaded
+#   llm_api_key = ""
+#
+# ---- bundled defaults ----
+"""
 
 REFRESH_HZ = 20
 SWIPE_ROWS = 3
@@ -200,7 +217,7 @@ class OlaresWorkspaceApp(App):
         self._prepare_config()
         self.bridge = TerminalBridge(self._make_tui, on_exit=self._tui_exited)
         self.view = TerminalView(self.bridge)
-        self._pending_char: CharKey | None = None
+        self._chars = CharFallback()
         self._pending_ev = None
         self._keyboard = None
         Window.bind(on_key_down=self._on_key_down, on_textinput=self._on_textinput)
@@ -244,14 +261,44 @@ class OlaresWorkspaceApp(App):
             Clock.schedule_once(lambda _dt: self.stop(), 0)
 
     def _prepare_config(self) -> None:
-        """First launch: copy the bundled config.toml to private storage."""
+        """First launch: copy the bundled config.toml to private storage.
+
+        Then layer ``config.toml`` from the external files dir on top, if
+        present, so settings can be changed on a release build with
+        ``adb push config.toml /sdcard/Android/data/<package>/files/``.
+        An example copy is kept there to ``adb pull`` and edit.
+        """
         target = Path(self.user_data_dir) / "config.toml"
         if not target.exists() and BUNDLED_CONFIG.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(BUNDLED_CONFIG, target)
         os.environ["TUI_OS_CONFIG"] = str(target)
+        self._debug_input = False
+
+        external = crash_log_path(self).parent
+        os.environ["TUI_OS_CONFIG_OVERRIDE"] = str(external / OVERRIDE_NAME)
+        example = external / (OVERRIDE_NAME + ".example")
+        try:
+            external.mkdir(parents=True, exist_ok=True)
+            if BUNDLED_CONFIG.exists():
+                example.write_text(OVERRIDE_HEADER + BUNDLED_CONFIG.read_text())
+        except OSError:
+            pass  # the override is optional
+        try:
+            from ..config import Settings
+
+            self._debug_input = Settings.load().debug_input
+        except Exception:  # noqa: BLE001 - a bad config shows on the crash screen later
+            pass
 
     # ------------------------------------------------------------ keyboard
+    def _trace(self, msg: str) -> None:
+        """debug_input = true: log every input event to logcat (tag "python")."""
+        if self._debug_input:
+            import time
+
+            print(f"[input {time.monotonic():.3f}] {msg}")
+
     def _lock_keyboard(self) -> None:
         """Hold the system keyboard so SDL keeps delivering key/text events.
 
@@ -262,6 +309,7 @@ class OlaresWorkspaceApp(App):
             self._keyboard = Window.request_keyboard(self._keyboard_released, self.view, "text")
 
     def _keyboard_released(self) -> None:
+        self._trace("keyboard released (re-requesting in 0.2 s)")
         self._keyboard = None
         Clock.schedule_once(lambda _dt: self._lock_keyboard(), 0.2)
 
@@ -269,34 +317,39 @@ class OlaresWorkspaceApp(App):
         return key == 27  # never let BACK/Esc close the activity
 
     def _on_key_down(self, _window, keycode, _scancode, codepoint, modifiers) -> bool:
+        self._trace(f"key_down keycode={keycode} scancode={_scancode} codepoint={codepoint!r} mods={modifiers}")
         action = translate_keydown(keycode, codepoint, modifiers or [])
         if isinstance(action, NamedKey):
             self._cancel_pending()
             self.bridge.send_key(action.key, action.character)
             return True
         if isinstance(action, CharKey):
-            # Wait briefly for the layout-aware text event; fall back if none.
+            # Text comes from layout-aware text-input events; the key itself is
+            # only typed if no text event follows (see CharFallback).
             self._cancel_pending()
-            self._pending_char = action
-            self._pending_ev = Clock.schedule_once(self._flush_pending, TEXT_FALLBACK_DELAY)
+            if self._chars.key_down(action):
+                self._pending_ev = Clock.schedule_once(self._flush_pending, TEXT_FALLBACK_DELAY)
             return True
         return False
 
     def _on_textinput(self, _window, text: str) -> None:
+        self._trace(f"textinput {text!r}")
         self._cancel_pending()
+        self._chars.text_input()
         self.bridge.send_text(text)
 
     def _cancel_pending(self) -> None:
         if self._pending_ev is not None:
             self._pending_ev.cancel()
         self._pending_ev = None
-        self._pending_char = None
+        self._chars.cancel()
 
     def _flush_pending(self, _dt) -> None:
-        if self._pending_char is not None:
-            self.bridge.send_text(self._pending_char.character)
-        self._pending_char = None
         self._pending_ev = None
+        char = self._chars.flush()
+        if char is not None:
+            self._trace(f"fallback types {char!r} (no text event)")
+            self.bridge.send_text(char)
 
 
 def crash_log_path(app: App | None = None) -> Path:
