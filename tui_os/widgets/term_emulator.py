@@ -90,6 +90,18 @@ _CURSOR = {"up": "A", "down": "B", "right": "C", "left": "D", "home": "H", "end"
 _MOD_CODE = {"shift": 2, "alt": 3, "shift+alt": 4, "ctrl": 5, "ctrl+shift": 6, "ctrl+alt": 7}
 
 
+#: Ctrl + punctuation: the C0 control an xterm sends (Ctrl+Space is NUL,
+#: tmux/emacs "set mark"; Ctrl+/ is undo in many editors).
+_CTRL_PUNCT = {
+    "space": "\x00", "@": "\x00", "`": "\x00",
+    "[": "\x1b", "left_square_bracket": "\x1b",
+    "\\": "\x1c", "backslash": "\x1c",
+    "]": "\x1d", "right_square_bracket": "\x1d",
+    "^": "\x1e", "circumflex_accent": "\x1e",
+    "_": "\x1f", "underscore": "\x1f", "/": "\x1f", "slash": "\x1f", "-": "\x1f", "minus": "\x1f",
+}
+
+
 def encode_key(key: str, character: str | None, *, app_cursor: bool = False) -> str | None:
     """Translate a Textual key event into the bytes an xterm would send."""
     if key in _FIXED:
@@ -100,14 +112,21 @@ def encode_key(key: str, character: str | None, *, app_cursor: bool = False) -> 
             code = _MOD_CODE.get("+".join(sorted(mods, key=["ctrl", "shift", "alt"].index)))
             return f"\x1b[1;{code}{_CURSOR[base]}" if code else None
         return ("\x1bO" if app_cursor else "\x1b[") + _CURSOR[base]
-    if mods == ["ctrl"] and len(base) == 1 and base.isalpha():
-        return chr(ord(base.lower()) - 96)
-    if mods == ["ctrl"] and base in ("left_square_bracket", "["):
-        return "\x1b"
-    if mods == ["alt"] and character:
-        return "\x1b" + character
+    if "alt" in mods:
+        # Meta: ESC, then the key without Alt (Alt+W is tmux/emacs "copy",
+        # Alt+Enter, Ctrl+Alt+X ...). The host may leave out the character.
+        rest = "+".join([m for m in mods if m != "alt"] + [base])
+        inner = encode_key(rest, character, app_cursor=app_cursor)
+        return "\x1b" + inner if inner else None
+    if mods == ["ctrl"]:
+        if len(base) == 1 and base.isalpha():
+            return chr(ord(base.lower()) - 96)
+        if base in _CTRL_PUNCT:
+            return _CTRL_PUNCT[base]
     if character and character.isprintable():
         return character
+    if len(base) == 1 and base.isprintable() and mods in ([], ["shift"]):
+        return base.upper() if mods else base
     return None
 
 
