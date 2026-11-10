@@ -141,3 +141,50 @@ def test_tmux_copy_mode_keys_reach_the_remote():
     assert sent(103, "g", ["ctrl"]) == "\x07"
     assert encode_key("alt+escape", None) == "\x1b\x1b"
     assert encode_key("alt+enter", None) == "\x1b\r"
+
+
+async def test_resize_while_connecting_reaches_the_remote(settings):
+    """tmux drew in the top-left corner: the panel resized during connect and
+    the remote PTY never heard about it."""
+    import asyncio
+
+    from tui_os.app import TuiOS
+    from tui_os.services.telemetry import DemoTelemetry
+    from tui_os.widgets.shell import ShellPane
+
+    gate = asyncio.Event()
+    sessions = []
+
+    class SlowSession:
+        def __init__(self, *_a):
+            self.started = None
+            self.resizes = []
+            sessions.append(self)
+
+        async def start(self, cols, rows):
+            self.started = (cols, rows)
+            await gate.wait()
+
+        def write(self, data): ...
+        def resize(self, cols, rows):
+            self.resizes.append((cols, rows))
+        async def close(self): ...
+
+    app = TuiOS(replace(settings, start_tab="shell", shell_autoconnect=True),
+                telemetry_source=DemoTelemetry(seed=1), k9s_session_factory=SlowSession)
+    async with app.run_test(size=(120, 40)) as pilot:
+        for _ in range(100):
+            await pilot.pause(0.03)
+            if sessions and sessions[0].started:
+                break
+        await pilot.resize_terminal(150, 50)
+        await pilot.pause(0.2)
+        gate.set()
+        pane = app.query_one(ShellPane)
+        for _ in range(100):
+            await pilot.pause(0.03)
+            if pane.state == "connected":
+                break
+        term = pane.terminal
+        assert sessions[0].started != (term.size.width, term.size.height)
+        assert sessions[0].resizes[-1] == (term.size.width, term.size.height)

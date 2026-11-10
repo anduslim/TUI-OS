@@ -255,6 +255,12 @@ class SshPane(Vertical):
             self._set_state("error", message)
             return
         self.session = session
+        # A resize while connecting (layout settling, Ctrl+B) found no session
+        # to tell, so the remote PTY would keep the old size: tmux then draws
+        # in a corner of the panel. Send the size the terminal has now.
+        size = self.terminal.size
+        if size.width > 0 and size.height > 0 and (size.width, size.height) != (cols, rows):
+            session.resize(size.width, size.height)
         self._set_state("connected")
 
     def _exited(self, status: int | None, error: str | None) -> None:
