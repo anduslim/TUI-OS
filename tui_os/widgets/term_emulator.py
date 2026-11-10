@@ -118,7 +118,7 @@ def encode_key(key: str, character: str | None, *, app_cursor: bool = False) -> 
         rest = "+".join([m for m in mods if m != "alt"] + [base])
         inner = encode_key(rest, character, app_cursor=app_cursor)
         return "\x1b" + inner if inner else None
-    if mods == ["ctrl"]:
+    if mods in (["ctrl"], ["ctrl", "shift"]):
         if len(base) == 1 and base.isalpha():
             return chr(ord(base.lower()) - 96)
         if base in _CTRL_PUNCT:
@@ -152,7 +152,7 @@ class TerminalEmulator(Widget, can_focus=True):
 
     #: Keys the app keeps even while a remote program has focus: tab
     #: switching, the telemetry toggle, redraw and quit.
-    RESERVED = frozenset({"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+b", "ctrl+r", "ctrl+q",
+    RESERVED = frozenset({"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+b", "ctrl+r", "ctrl+q", "ctrl+shift+c",
                           "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6"})
 
     class Resized(Message):

@@ -33,7 +33,7 @@ SPECIAL_KEYS: dict[int, tuple[str, str | None]] = {
 }
 
 #: Keys that paste the Android clipboard instead of reaching the TUI as keys.
-PASTE_KEYS = frozenset({"ctrl+v", "shift+insert"})
+PASTE_KEYS = frozenset({"ctrl+v", "ctrl+shift+v", "shift+insert"})
 
 #: Ctrl + these punctuation keys send a C0 control (Ctrl+Space = NUL, tmux's
 #: and emacs's "set mark"); the key name matches term_emulator.encode_key.
@@ -91,6 +91,8 @@ def translate_keydown(
     if ctrl and base.isalpha() and len(base) == 1:
         if alt:
             return NamedKey(f"ctrl+alt+{base}")
+        if shift:  # Ctrl+Shift+C copies the screen, Ctrl+Shift+V pastes
+            return NamedKey(f"ctrl+shift+{base}", chr(ord(base) - 96))
         return NamedKey(f"ctrl+{base}", chr(ord(base) - 96))
     if ctrl and base.isdigit() and len(base) == 1:
         return NamedKey(f"ctrl+{base}")  # Ctrl+1..6 switch tabs (Boox takes F-keys and Alt)

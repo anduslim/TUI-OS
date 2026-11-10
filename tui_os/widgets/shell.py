@@ -33,7 +33,7 @@ def shell_target(settings: Settings, command: str | None = None) -> SshTarget:
 class ShellPane(SshPane):
     TITLE = "SHELL"
     FRAME_TITLE = "shell"
-    RESERVED = frozenset({"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+q",
+    RESERVED = frozenset({"f1", "f2", "f3", "f4", "f5", "f6", "ctrl+q", "ctrl+shift+c",
                           "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6"})
 
     def make_target(self, settings: Settings) -> SshTarget:

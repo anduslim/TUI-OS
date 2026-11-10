@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -48,6 +48,7 @@ from .widgets.calendar import CalendarPane
 from .widgets.k9s import K9sPane, SessionFactory
 from .widgets.agent import AgentPane
 from .widgets.shell import ShellPane
+from .widgets.term_emulator import TerminalEmulator
 from .widgets.webview import WebBrowserPane
 from .host.services import HostServices, WebViewEvent
 from .widgets.mail import MailPane
@@ -68,6 +69,10 @@ class TelemetryUpdated(Message):
         self.snapshot = snapshot
 
 
+#: Tap target in the title bar: same as Ctrl+Shift+C.
+COPY_LABEL = " copy screen "
+
+
 class TitleBar(Static):
     """One-line header. Clock has minute resolution (one repaint a minute)."""
 
@@ -75,6 +80,7 @@ class TitleBar(Static):
         super().__init__(id=id)
         self.host = host
         self._last = ""
+        self._copy_span = (-1, -1)
 
     def on_mount(self) -> None:
         self.tick()
@@ -94,9 +100,17 @@ class TitleBar(Static):
         text.append(f" TUI-OS {app_version()} ", "bold #000000 on #00FF00")
         text.append(f"  olares://{self.host}", "bold #FFFFFF")
         right = f"{stamp} "
-        text.append(" " * max(1, self.size.width - text.cell_len - len(right)))
+        text.append(" " * max(1, self.size.width - text.cell_len - len(right) - len(COPY_LABEL) - 2))
+        self._copy_span = (text.cell_len, text.cell_len + len(COPY_LABEL))
+        text.append(COPY_LABEL, "bold #FFFFFF on #0000FF")
+        text.append("  ")
         text.append(right, "bold #FFFFFF")
         self.update(text, layout=False)  # one fixed row: no relayout
+
+    def on_click(self, event: events.Click) -> None:
+        start, end = self._copy_span
+        if start <= event.x < end:
+            self.app.action_copy_screen()
 
     def on_resize(self) -> None:
         self._last = ""
@@ -119,6 +133,7 @@ class TuiOS(App[None]):
         Binding("ctrl+5,f5,alt+5", "show_tab('k9s')", "K9s", priority=True),
         Binding("ctrl+6,f6,alt+6", "show_tab('terminal')", "LLM", priority=True),
         Binding("ctrl+r", "refresh_screen", "Redraw", priority=True),
+        Binding("ctrl+shift+c", "copy_screen", "Copy screen", show=False, priority=True),
         Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
@@ -326,6 +341,35 @@ class TuiOS(App[None]):
             self._activate(event.pane.id)
             if event.pane.id == "browser" and self.query(WebBrowserPane):
                 self.call_after_refresh(self.query_one(WebBrowserPane).enter_page)
+
+    def screen_text(self) -> tuple[str, str]:
+        """The active tab's text as shown, and the tab's label.
+
+        Terminal tabs give their emulator's grid (exactly what the remote
+        program drew); other tabs give the rendered cells of their pane.
+        """
+        tabs = self.query_one("#workspace", TabbedContent)
+        tab = tabs.active
+        label = str(tabs.get_tab(tab).label).split(" ", 1)[-1] if tab else ""
+        pane = self.query_one(f"#{tab}-pane")
+        terms = [t for t in pane.query(TerminalEmulator) if t.display]
+        if terms:
+            lines = terms[0].text_lines()
+        else:
+            r = pane.content_region
+            strips = self.screen._compositor.render_strips()
+            lines = [strips[y].crop(r.x, r.right).text for y in range(r.y, min(r.bottom, len(strips)))]
+        return "\n".join(line.rstrip() for line in lines).strip("\n"), label
+
+    def action_copy_screen(self) -> None:
+        """Copy the active tab's text to the clipboard (paste it with Ctrl+V)."""
+        text, label = self.screen_text()
+        if not text:
+            self.notify(f"Nothing to copy in {label}.")
+            return
+        self.copy_to_clipboard(text)
+        self.notify(f"Copied {text.count(chr(10)) + 1} lines from {label}. Ctrl+V or long press pastes.",
+                    title="Copy screen")
 
     def action_refresh_screen(self) -> None:
         """Full repaint — use to clear accumulated E-ink ghosting."""

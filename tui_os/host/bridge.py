@@ -27,7 +27,9 @@ Nothing here imports Kivy, so the whole pipeline is testable on a desktop.
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
+import re
 import threading
 import traceback
 from collections.abc import Callable
@@ -65,6 +67,20 @@ def _swallowed_error(app: "App[Any]") -> str | None:
     return f"The app exited with return code {app.return_code}."
 
 
+_OSC52 = re.compile(r"\x1b\]52;[^;]*;([A-Za-z0-9+/=]*)(?:\x07|\x1b\\)")
+
+
+def clipboard_texts(data: str) -> list[str]:
+    """Texts in OSC 52 "set clipboard" sequences (App.copy_to_clipboard)."""
+    texts = []
+    for payload in _OSC52.findall(data):
+        try:
+            texts.append(base64.b64decode(payload).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+    return texts
+
+
 class EmbeddedDriver(Driver):
     """Textual driver whose 'terminal' is a :class:`TerminalBridge`.
 
@@ -77,8 +93,11 @@ class EmbeddedDriver(Driver):
         # Screen content arrives through the wrapped App._display (see
         # TerminalBridge._hook_display); what is left here is terminal
         # housekeeping (mouse modes, sync markers, cursor), which has no
-        # meaning without a terminal.
-        pass
+        # meaning without a terminal, and App.copy_to_clipboard's OSC 52,
+        # which goes to the host's clipboard.
+        if "\x1b]52;" in data:
+            for text in clipboard_texts(data):
+                self.bridge.set_clipboard(text)
 
     def start_application_mode(self) -> None:
         loop = asyncio.get_running_loop()
@@ -124,6 +143,8 @@ class TerminalBridge:
         self.finished = threading.Event()
         self.app: "App[Any] | None" = None
         self.error: str | None = None
+        #: Set by the host: puts text on the system clipboard (any thread).
+        self.on_clipboard: Callable[[str], None] | None = None
 
     # ----------------------------------------------------------- lifecycle
     @property
@@ -250,6 +271,10 @@ class TerminalBridge:
             return False
         loop.call_soon_threadsafe(callback, app)
         return True
+
+    def set_clipboard(self, text: str) -> None:
+        if self.on_clipboard is not None:
+            self.on_clipboard(text)
 
     def send_key(self, key: str, character: str | None = None) -> bool:
         """Send a named key, e.g. ``"ctrl+b"``, ``"f2"``, ``"pagedown"``."""
