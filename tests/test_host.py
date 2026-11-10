@@ -315,3 +315,16 @@ def test_key_bar_matches_footer_and_taps_run_keys(bridge):
     assert "^b Telemetry" in last and "^2 Mail" in last and "^r Redraw" in last
     bridge.tap(last.index("^2 Mail") + 1, len(bridge.text_lines()) - 1)
     assert _wait_for(lambda: "NeoMutt" in screen(bridge))
+
+
+def test_ctrl_shift_c_puts_the_screen_on_the_host_clipboard(bridge):
+    """App.copy_to_clipboard's OSC 52 reaches the host (Kivy clipboard on the Boox)."""
+    import threading
+
+    got: list[str] = []
+    done = threading.Event()
+    bridge.on_clipboard = lambda text: (got.append(text), done.set())
+    time.sleep(0.5)  # let the first screen settle
+    bridge.send_key("ctrl+shift+c", "\x03")
+    assert done.wait(5)
+    assert got[0].strip()

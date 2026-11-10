@@ -326,6 +326,17 @@ class TerminalView(Widget):
         return True
 
 
+def copy_clipboard(bridge: TerminalBridge, text: str) -> None:
+    """Put text on the Android/desktop clipboard (Kivy UI thread)."""
+    try:
+        from kivy.core.clipboard import Clipboard
+
+        Clipboard.copy(text)
+    except Exception as exc:  # noqa: BLE001 - no clipboard provider: say so, don't crash
+        message = f"Clipboard unavailable: {exc}"
+        bridge.call_in_app(lambda app: app.notify(message, severity="error"))
+
+
 def paste_clipboard(bridge: TerminalBridge) -> None:
     """Send the Android/desktop clipboard to the TUI as a Paste event."""
     try:
@@ -351,6 +362,7 @@ class OlaresWorkspaceApp(App):
         Window.softinput_mode = "below_target"
         self._prepare_config()
         self.bridge = TerminalBridge(self._make_tui, on_exit=self._tui_exited)
+        self.bridge.on_clipboard = lambda text: Clock.schedule_once(lambda _dt: copy_clipboard(self.bridge, text))
         self.view = TerminalView(self.bridge)
         if self._debug_input:
             self.view.trace = self._trace

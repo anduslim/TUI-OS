@@ -17,6 +17,12 @@ On the Boox, F1–F6 and Alt+digit are taken by the system keyboard, so use
 **Ctrl+1–6** (they work in every tab, the SSH shell and the web page included) or
 **tap a tab label**.
 
+**Copy screen:** `Ctrl+Shift+C`, or tap **copy screen** in the title bar, copies the
+text of the current tab (a terminal tab gives exactly what the remote program drew)
+to the Android clipboard. `Ctrl+V` (or `Ctrl+Shift+V`, or a long press) pastes it, for
+example into Claude Code in the Agent tab, as one bracketed paste. The Browser tab's
+web page is a native view, so only its location and status bars are copied.
+
 On the left, a 30-column **telemetry panel** shows CPU and GPU temperature, VRAM, and
 network RX/TX from Prometheus. **`Ctrl+B`** hides or shows it, and the workspace
 reflows to the full width straight away.
