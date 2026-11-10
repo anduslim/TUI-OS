@@ -469,6 +469,7 @@ class OlaresWorkspaceApp(App):
             # A Ctrl/Alt chord on a printable key must not also type that key
             # if the platform sends a text event for it (e.g. Ctrl+1 -> "1").
             base = action.key.rsplit("+", 1)[-1]
+            base = " " if base == "space" else base
             self._swallow_text = (base, Clock.get_time()) if len(base) == 1 and "+" in action.key else None
             self.bridge.send_key(action.key, action.character)
             return True

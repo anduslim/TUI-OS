@@ -35,6 +35,12 @@ SPECIAL_KEYS: dict[int, tuple[str, str | None]] = {
 #: Keys that paste the Android clipboard instead of reaching the TUI as keys.
 PASTE_KEYS = frozenset({"ctrl+v", "shift+insert"})
 
+#: Ctrl + these punctuation keys send a C0 control (Ctrl+Space = NUL, tmux's
+#: and emacs's "set mark"); the key name matches term_emulator.encode_key.
+_CTRL_PUNCT = {" ": ("space", "\x00"), "@": ("@", "\x00"), "`": ("`", "\x00"),
+               "[": ("[", "\x1b"), "\\": ("\\", "\x1c"), "]": ("]", "\x1d"),
+               "^": ("^", "\x1e"), "/": ("/", "\x1f"), "-": ("-", "\x1f"), "_": ("_", "\x1f")}
+
 _US_SHIFT = dict(zip("`1234567890-=[]\\;',./", '~!@#$%^&*()_+{}|:"<>?'))
 
 
@@ -80,14 +86,21 @@ def translate_keydown(
     if char is None:
         return None
     base = char.lower()
+    if shift:
+        char = char.upper() if char.isalpha() else _US_SHIFT.get(char, char)
     if ctrl and base.isalpha() and len(base) == 1:
+        if alt:
+            return NamedKey(f"ctrl+alt+{base}")
         return NamedKey(f"ctrl+{base}", chr(ord(base) - 96))
     if ctrl and base.isdigit() and len(base) == 1:
         return NamedKey(f"ctrl+{base}")  # Ctrl+1..6 switch tabs (Boox takes F-keys and Alt)
+    if ctrl and base in _CTRL_PUNCT and not alt:
+        name, control = _CTRL_PUNCT[base]
+        return NamedKey(f"ctrl+{name}", control)
     if alt:
-        return NamedKey(f"alt+{base}")
-    if shift:
-        char = char.upper() if char.isalpha() else _US_SHIFT.get(char, char)
+        # No character, so text fields don't type the letter; the terminal
+        # encodes it as ESC + key (Alt+W -> ESC w, Alt+Shift+W -> ESC W).
+        return NamedKey(f"alt+shift+{base}" if shift and base.isalpha() else f"alt+{base}")
     return CharKey(char)
 
 

@@ -117,3 +117,74 @@ def test_utf8_text_is_unchanged():
     term, _ = _emulator()
     term.feed("héllo ─│ 日本 ✓")
     assert term.text_lines()[0].startswith("héllo ─│ 日本 ✓")
+
+
+def test_tmux_copy_mode_keys_reach_the_remote():
+    """tmux/emacs copy mode: Ctrl+Space marks, Alt+W copies, Esc cancels.
+
+    Alt+letter used to be dropped and Ctrl+Space typed a plain space.
+    """
+    from tui_os.host.keymap import translate_keydown
+    from tui_os.widgets.term_emulator import encode_key
+
+    def sent(keycode, codepoint, mods):
+        action = translate_keydown(keycode, codepoint, mods)
+        return encode_key(action.key, getattr(action, "character", None))
+
+    assert sent(27, None, []) == "\x1b"
+    assert sent(32, " ", ["ctrl"]) == "\x00"
+    assert sent(119, "w", ["alt"]) == "\x1bw"
+    assert sent(119, "w", ["alt", "shift"]) == "\x1bW"
+    assert sent(120, "x", ["ctrl", "alt"]) == "\x1b\x18"
+    assert sent(91, "[", ["ctrl"]) == "\x1b"
+    assert sent(47, "/", ["ctrl"]) == "\x1f"
+    assert sent(103, "g", ["ctrl"]) == "\x07"
+    assert encode_key("alt+escape", None) == "\x1b\x1b"
+    assert encode_key("alt+enter", None) == "\x1b\r"
+
+
+async def test_resize_while_connecting_reaches_the_remote(settings):
+    """tmux drew in the top-left corner: the panel resized during connect and
+    the remote PTY never heard about it."""
+    import asyncio
+
+    from tui_os.app import TuiOS
+    from tui_os.services.telemetry import DemoTelemetry
+    from tui_os.widgets.shell import ShellPane
+
+    gate = asyncio.Event()
+    sessions = []
+
+    class SlowSession:
+        def __init__(self, *_a):
+            self.started = None
+            self.resizes = []
+            sessions.append(self)
+
+        async def start(self, cols, rows):
+            self.started = (cols, rows)
+            await gate.wait()
+
+        def write(self, data): ...
+        def resize(self, cols, rows):
+            self.resizes.append((cols, rows))
+        async def close(self): ...
+
+    app = TuiOS(replace(settings, start_tab="shell", shell_autoconnect=True),
+                telemetry_source=DemoTelemetry(seed=1), k9s_session_factory=SlowSession)
+    async with app.run_test(size=(120, 40)) as pilot:
+        for _ in range(100):
+            await pilot.pause(0.03)
+            if sessions and sessions[0].started:
+                break
+        await pilot.resize_terminal(150, 50)
+        await pilot.pause(0.2)
+        gate.set()
+        pane = app.query_one(ShellPane)
+        for _ in range(100):
+            await pilot.pause(0.03)
+            if pane.state == "connected":
+                break
+        term = pane.terminal
+        assert sessions[0].started != (term.size.width, term.size.height)
+        assert sessions[0].resizes[-1] == (term.size.width, term.size.height)
