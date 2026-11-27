@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tuios-proto",
+    "crates/tuiosd",
+    "crates/tuios-client",
+    "crates/tuios-desktop",
+    "crates/tuios-android",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+tuios-proto = { path = "crates/tuios-proto" }
+tuios-client = { path = "crates/tuios-client" }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["use-std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "io-util"] }
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+unicode-width = "0.2"
+anyhow = "1"
+log = "0.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

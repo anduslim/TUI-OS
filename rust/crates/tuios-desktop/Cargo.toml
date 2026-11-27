@@ -1,0 +1,19 @@
+[package]
+name = "tuios-desktop"
+description = "TUI OS laptop client: the same thin client as the Boox, in a desktop window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tuios"
+path = "src/main.rs"
+
+[dependencies]
+tuios-proto.workspace = true
+tuios-client.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger = "0.11"
+winit = "0.30"
+softbuffer = "0.4"

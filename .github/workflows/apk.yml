@@ -14,6 +14,8 @@ name: Android APK
 
 on:
   pull_request:
+    # TUI OS v2 (Rust) has its own workflow (rust.yml).
+    paths-ignore: ["rust/**", ".github/workflows/rust.yml"]
   push:
     branches: ["main"]
     tags: ["v*"]
