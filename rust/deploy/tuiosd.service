@@ -1,0 +1,15 @@
+# /etc/systemd/system/tuiosd.service on the Olares One
+[Unit]
+Description=TUI OS v2 server (tuiosd)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=olares
+Environment=HOME=/home/olares
+ExecStart=/usr/local/bin/tuiosd --config /home/olares/.config/tuiosd/config.toml
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

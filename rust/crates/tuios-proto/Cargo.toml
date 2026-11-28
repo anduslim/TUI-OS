@@ -1,0 +1,11 @@
+[package]
+name = "tuios-proto"
+description = "Wire protocol and cell-grid model shared by tuiosd and its clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+postcard.workspace = true
+unicode-width.workspace = true

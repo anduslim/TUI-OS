@@ -1,0 +1,15 @@
+[package]
+name = "tuios-client"
+description = "Thin-client core shared by the Boox (Android) and laptop apps: connection, grid state, software renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tuios-proto.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+anyhow.workspace = true
+log.workspace = true
+fontdue = "0.9"

@@ -1,0 +1,19 @@
+[package]
+name = "tuios-android"
+description = "Rust core of the Boox app: JNI entry points around tuios-client, drawing into the SurfaceView's native window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+tuios-proto.workspace = true
+tuios-client.workspace = true
+log.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk = { version = "0.9", default-features = false, features = ["nativewindow"] }
+android_logger = "0.15"
